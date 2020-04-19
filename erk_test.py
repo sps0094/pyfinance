@@ -35,3 +35,4 @@ import pandas as pd
 
 #gbm
 erk.gbm()
+erk.gbm(s0=10)
