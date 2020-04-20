@@ -738,6 +738,16 @@ def cir():
                                      dcc.Slider(id='sl_vola', min=0, max=1, step=0.05, value=0.15),
                                      html.Label(id='out_vola')], style={'display': 'inline-block'}),
                            html.Button(id='sub_cir', children='SUBMIT', n_clicks=0, style={'display': 'inline-block'})], style= {'display': 'flex', 'justify-content': 'space-evenly'}),
+                           html.Div([html.Div([html.Label(children='Select N-Periods: '),
+                                               dcc.Slider(id='sl_periods', min=1, max=20, step=1, value=10),
+                                               html.Label(id='out_periods')], style={'display': 'inline-block'}),
+                                     html.Div([html.Label(children='Select steps_per_yr: '),
+                                               dcc.Slider(id='sl_stperyr', min=1, max=20, step=1, value=12),
+                                               html.Label(id='out_stperyr')], style={'display': 'inline-block'}),
+                                     html.Div([html.Label(children='Select N-Scenarios: '),
+                                               dcc.Slider(id='sl_scenarios', min=1, max=250, step=1, value=10),
+                                               html.Label(id='out_scenarios')], style={'display': 'inline-block'})
+                                     ], style= {'display': 'flex', 'justify-content': 'space-evenly', 'padding-top': '25px'}),
                            html.Div([dcc.Graph(id='cir')])])
 
     upd_label('out_av', 'sl_av')
@@ -745,6 +755,20 @@ def cir():
     upd_label('out_ltrf', 'sl_ltrf')
     upd_label('out_speed', 'sl_speed')
     upd_label('out_vola', 'sl_vola')
+    upd_label('out_periods', 'sl_periods')
+    upd_label('out_stperyr', 'sl_stperyr')
+    upd_label('out_scenarios', 'sl_scenarios')
+
+    @app.callback(Output('cir', 'figure'),
+                  [Input('sub_cir', 'n_clicks')],
+                  [State('sl_rf', 'value'),
+                   State('sl_periods', 'value'),
+                   State('sl_stperyr', 'value'),
+                   State('sl_scenarios', 'value')])
+    def upd_cir(n_clicks, rf, n_years, steps_per_yr, n_scenarios):
+        dt = 1/steps_per_yr
+        total_time_steps = int(n_years*steps_per_yr)+1
+        cir_gbm_df = pd.DataFrame(np.random.rand(total_time_steps, n_scenarios))
 
     app.run_server()
 
