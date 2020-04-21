@@ -713,6 +713,23 @@ def get_funding_ratio(liabilities: pd.Series, assets, disc_rate):
     return [np.divide(assets, pv), pv]
 
 
+def conv_to_short_rate(r):
+    """
+    price relative = exp(t*sr) => ln(1+r)/t = sr (assumes t = 1)
+    :param r: annualised interest rate
+    :return: short rates
+    """
+    return np.log1p(r)
+
+def conv_to_annualised_rate(sr):
+    """
+    exp(t*sr) - 1 = r (assumes t = 1)
+    :param sr: short rate
+    :return: annualised rate for a given short rate
+    """
+    return np.expm1(sr)
+
+
 def cir():
     app = dash.Dash()
 
@@ -764,11 +781,26 @@ def cir():
                   [State('sl_rf', 'value'),
                    State('sl_periods', 'value'),
                    State('sl_stperyr', 'value'),
-                   State('sl_scenarios', 'value')])
-    def upd_cir(n_clicks, rf, n_years, steps_per_yr, n_scenarios):
+                   State('sl_scenarios', 'value'),
+                   State('sl_vola', 'value'),
+                   State('sl_speed', 'value'),
+                   State('sl_ltrf', 'value')])
+    def upd_cir(n_clicks, rf, n_years, steps_per_yr, n_scenarios, volatility, a, b):
         dt = 1/steps_per_yr
+        sr = conv_to_short_rate(rf)
         total_time_steps = int(n_years*steps_per_yr)+1
-        cir_gbm_df = pd.DataFrame(np.random.rand(total_time_steps, n_scenarios))
+        shock = np.random.normal(loc=0, scale=volatility*np.sqrt(dt), size=(total_time_steps, n_scenarios))
+        rates = np.empty_like(shock)
+        rates[0] = sr
+        for steps in range(1, total_time_steps):
+            prev_rate = rates[steps-1]
+            drift = a * (b - prev_rate)
+            shock[steps] = shock[steps] * np.sqrt(prev_rate)
+            dr = drift + shock[steps]
+            rates[steps] = prev_rate + dr
+        rates_gbm = pd.DataFrame(rates)
+        rates_gbm.to_csv('temp_gbm.csv')
+
 
     app.run_server()
 
