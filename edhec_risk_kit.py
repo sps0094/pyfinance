@@ -798,8 +798,21 @@ def cir():
             shock[steps] = shock[steps] * np.sqrt(prev_rate)
             dr = drift + shock[steps]
             rates[steps] = prev_rate + dr
-        rates_gbm = pd.DataFrame(rates)
-        rates_gbm.to_csv('temp_gbm.csv')
+        rates_gbm_df = pd.DataFrame(conv_to_annualised_rate(rates))
+
+        fig = make_subplots(rows=1, cols=2)
+        rates_gbm = rates_gbm_df.aggregate(lambda scenario: go.Scatter(x=scenario.index, y=scenario))
+        rates_gbm = rates_gbm.tolist()
+        for rates_data in rates_gbm:
+            fig.add_trace(rates_data, row=1, col=1)
+        mrl = [dict(type='line', xref='paper', yref='y1', x0=0, x1=1, y0=b, y1=b, name='Mean Reverting Level',
+                    line=dict(dash='dashdot', width=5))]
+        fig.update_layout(showlegend=False,
+                          title='Cox Ingresol Roxx Model with GBM model of interest rates',
+                          height=500,
+                          hovermode='closest',
+                          shapes=mrl)
+        return fig
 
 
     app.run_server()
