@@ -786,11 +786,23 @@ def cir():
                    State('sl_speed', 'value'),
                    State('sl_ltrf', 'value')])
     def upd_cir(n_clicks, rf, n_years, steps_per_yr, n_scenarios, volatility, a, b):
+        def get_scatter_points(df: pd.DataFrame):
+            return df.aggregate(lambda scenario: go.Scatter(x=scenario.index, y=scenario)).tolist()
         dt = 1/steps_per_yr
         sr = conv_to_short_rate(rf)
         total_time_steps = int(n_years*steps_per_yr)+1
         shock = np.random.normal(loc=0, scale=volatility*np.sqrt(dt), size=(total_time_steps, n_scenarios))
         rates = np.empty_like(shock)
+        # For ZCB price generation
+        # Formula - please refer cir1.png
+        h = np.sqrt(a**2 + 2*volatility**2)
+        zcb = np.empty_like(shock)
+        def price(ttm, rf):
+            _A = ((2*h*np.exp((h+a)*ttm/2))/(2*h+(h+a)*np.exp(h*ttm)-1))**(2*a*b/volatility**2)
+            _B = (2*(np.exp(h*ttm)-1))/(2*h + (h+a)*(np.exp(h*ttm)-1))
+            _P = _A*np.exp(-_B*rf)
+            return _P
+        zcb[0] = price(n_years, rf)
         rates[0] = sr
         for steps in range(1, total_time_steps):
             prev_rate = rates[steps-1]
@@ -798,14 +810,18 @@ def cir():
             shock[steps] = shock[steps] * np.sqrt(prev_rate)
             dr = drift + shock[steps]
             rates[steps] = prev_rate + dr
-        rates_gbm_df = pd.DataFrame(conv_to_annualised_rate(rates), index=range(total_time_steps))
+            zcb[steps] = price(n_years-(steps*dt), rates[steps])
+        rates_gbm_df = pd.DataFrame(data=conv_to_annualised_rate(rates))
+        zcb_gbm_df = pd.DataFrame(data=zcb)
 
         fig = make_subplots(rows=1, cols=2)
-        rates_gbm = rates_gbm_df.aggregate(lambda scenario: go.Scatter(x=scenario.index, y=scenario))
-        rates_gbm = rates_gbm.tolist()
+        rates_gbm = get_scatter_points(rates_gbm_df)
+        zcb_gbm = get_scatter_points(zcb_gbm_df)
         for rates_data in rates_gbm:
             fig.add_trace(rates_data, row=1, col=1)
-        mrl = [dict(type='line', xref='paper', yref='y1', x0=0, x1=1, y0=b, y1=b, name='Mean Reverting Level',
+        for zcb_price in zcb_gbm:
+            fig.add_trace(zcb_price, row=1, col=2)
+        mrl = [dict(type='line', xref='x1', yref='y1', x0=0, x1=total_time_steps-1, y0=b, y1=b, name='Mean Reverting Level',
                     line=dict(dash='dashdot', width=5))]
         fig.update_layout(showlegend=False,
                           title='Cox Ingresol Roxx Model with GBM model of interest rates',
