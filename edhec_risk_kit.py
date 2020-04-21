@@ -798,7 +798,7 @@ def cir():
             shock[steps] = shock[steps] * np.sqrt(prev_rate)
             dr = drift + shock[steps]
             rates[steps] = prev_rate + dr
-        rates_gbm_df = pd.DataFrame(conv_to_annualised_rate(rates))
+        rates_gbm_df = pd.DataFrame(conv_to_annualised_rate(rates), index=range(total_time_steps))
 
         fig = make_subplots(rows=1, cols=2)
         rates_gbm = rates_gbm_df.aggregate(lambda scenario: go.Scatter(x=scenario.index, y=scenario))
