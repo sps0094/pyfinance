@@ -746,10 +746,10 @@ def cir():
                                      dcc.Slider(id='sl_rf', min=0.01, max=0.10, step=0.005, value=0.03),
                                      html.Label(id='out_rf')], style={'display': 'inline-block'}),
                            html.Div([html.Label(children='Select expected LT RF: '),
-                                    dcc.Slider(id='sl_ltrf', min=0.01, max=0.10, step=0.005, value=0.05),
+                                    dcc.Slider(id='sl_ltrf', min=0.01, max=0.10, step=0.005, value=0.03),
                                     html.Label(id='out_ltrf')], style={'display': 'inline-block'}),
                            html.Div([html.Label(children='Select speed of MR: '),
-                                    dcc.Slider(id='sl_speed', min=0, max=1, step=0.05, value=0.6),
+                                    dcc.Slider(id='sl_speed', min=0, max=1, step=0.05, value=0.5),
                                     html.Label(id='out_speed')], style={'display': 'inline-block'}),
                            html.Div([html.Label(children='Select volatility: '),
                                      dcc.Slider(id='sl_vola', min=0, max=1, step=0.05, value=0.15),
@@ -797,6 +797,7 @@ def cir():
         # Formula - please refer cir1.png
         h = np.sqrt(a**2 + 2*volatility**2)
         zcb = np.empty_like(shock)
+
         def price(ttm, rf):
             _A = ((2*h*np.exp((h+a)*ttm/2))/(2*h+(h+a)*np.exp(h*ttm)-1))**(2*a*b/volatility**2)
             _B = (2*(np.exp(h*ttm)-1))/(2*h + (h+a)*(np.exp(h*ttm)-1))
@@ -810,11 +811,11 @@ def cir():
             shock[steps] = shock[steps] * np.sqrt(prev_rate)
             dr = drift + shock[steps]
             rates[steps] = prev_rate + dr
-            zcb[steps] = price(n_years-(steps*dt), rates[steps])
+            zcb[steps] = price(n_years-steps*dt, rates[steps])
         rates_gbm_df = pd.DataFrame(data=conv_to_annualised_rate(rates))
         zcb_gbm_df = pd.DataFrame(data=zcb)
 
-        fig = make_subplots(rows=1, cols=2)
+        fig = make_subplots(rows=1, cols=2, shared_xaxes=True, subplot_titles=("CIR model of Interest rates", "ZCB Prices based on CIR"))
         rates_gbm = get_scatter_points(rates_gbm_df)
         zcb_gbm = get_scatter_points(zcb_gbm_df)
         for rates_data in rates_gbm:
@@ -823,8 +824,8 @@ def cir():
             fig.add_trace(zcb_price, row=1, col=2)
         mrl = [dict(type='line', xref='x1', yref='y1', x0=0, x1=total_time_steps-1, y0=b, y1=b, name='Mean Reverting Level',
                     line=dict(dash='dashdot', width=5))]
+        fig.update_xaxes(matches='x')
         fig.update_layout(showlegend=False,
-                          title='Cox Ingresol Roxx Model with GBM model of interest rates',
                           height=500,
                           hovermode='closest',
                           shapes=mrl)
