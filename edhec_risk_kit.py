@@ -104,9 +104,12 @@ def add_1(ddf):
     return ddf + 1
 
 
-def drawdown(df: pd.DataFrame, retrive_index=False, init_wealth=1000):
+def drawdown(df: pd.DataFrame, retrive_index=False, init_wealth=1000, is1p=True):
     if retrive_index:
-        factor = np.exp(np.cumsum(np.log(df)))  # using log instead of cumprod for efficiency
+        if is1p:
+            factor = np.exp(np.cumsum(np.log(df)))  # using log instead of cumprod for efficiency
+        else:
+            factor = np.exp(np.cumsum(np.log1p(df)))  # using log instead of cumprod for efficiency
         wealth_index = init_wealth * factor
         return wealth_index
     factor = np.exp(np.cumsum(np.log1p(df)))  # using log instead of cumprod for efficiency
@@ -784,8 +787,9 @@ def cir():
                    State('sl_scenarios', 'value'),
                    State('sl_vola', 'value'),
                    State('sl_speed', 'value'),
-                   State('sl_ltrf', 'value')])
-    def upd_cir(n_clicks, rf, n_years, steps_per_yr, n_scenarios, volatility, a, b):
+                   State('sl_ltrf', 'value'),
+                   State('sl_av', 'value')])
+    def upd_cir(n_clicks, rf, n_years, steps_per_yr, n_scenarios, volatility, a, b, av):
         def get_scatter_points(df: pd.DataFrame):
             return df.aggregate(lambda scenario: go.Scatter(x=scenario.index, y=scenario)).tolist()
         dt = 1/steps_per_yr
@@ -814,19 +818,44 @@ def cir():
             zcb[steps] = price(n_years-steps*dt, rates[steps])
         rates_gbm_df = pd.DataFrame(data=conv_to_annualised_rate(rates))
         zcb_gbm_df = pd.DataFrame(data=zcb)
+        liabilities = zcb_gbm_df #Assuming same liab as that of ZCB
 
-        fig = make_subplots(rows=1, cols=2, shared_xaxes=True, subplot_titles=("CIR model of Interest rates", "ZCB Prices based on CIR"))
+        #Investments in ZCB at T0
+        n_bonds = av/zcb_gbm_df.loc[0,0]
+        av_zcb_df = n_bonds * zcb_gbm_df
+        fr_zcb_df = (av_zcb_df/liabilities).pct_change().dropna()
+
+        #Cash investments cumprod
+        fd_rates = rates_gbm_df.apply(lambda x: x/steps_per_yr)
+        av_cash_df = drawdown(fd_rates, retrive_index=True, init_wealth=av, is1p=False)
+        fr_cash_df = (av_cash_df/liabilities).pct_change().dropna()
+
+        fig = make_subplots(rows=3, cols=2, shared_xaxes=True, subplot_titles=("CIR model of Interest rates", "ZCB Prices based on CIR",
+                                                                               "Cash invested in FD with rolling maturity", "ZCB investments at T=0", "Funding Ratio %ch-Cash",
+                                                                               "Funding Ratio %ch-ZCB"))
         rates_gbm = get_scatter_points(rates_gbm_df)
         zcb_gbm = get_scatter_points(zcb_gbm_df)
+        av_zcb_gbm = get_scatter_points(av_zcb_df)
+        av_cash_gbm = get_scatter_points(av_cash_df)
+        fr_cash_gbm = get_scatter_points(fr_cash_df)
+        fr_zcb_gbm = get_scatter_points(fr_zcb_df)
         for rates_data in rates_gbm:
             fig.add_trace(rates_data, row=1, col=1)
         for zcb_price in zcb_gbm:
             fig.add_trace(zcb_price, row=1, col=2)
+        for av_cash in av_cash_gbm:
+            fig.add_trace(av_cash, row=2, col=1)
+        for av_zcb in av_zcb_gbm:
+            fig.add_trace(av_zcb, row=2, col=2)
+        for fr_cash in fr_cash_gbm:
+            fig.add_trace(fr_cash, row=3, col=1)
+        for fr_zcb in fr_zcb_gbm:
+            fig.add_trace(fr_zcb, row=3, col=2)
         mrl = [dict(type='line', xref='x1', yref='y1', x0=0, x1=total_time_steps-1, y0=b, y1=b, name='Mean Reverting Level',
                     line=dict(dash='dashdot', width=5))]
         fig.update_xaxes(matches='x')
         fig.update_layout(showlegend=False,
-                          height=500,
+                          height=1000,
                           hovermode='closest',
                           shapes=mrl)
         return fig
