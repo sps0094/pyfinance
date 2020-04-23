@@ -762,13 +762,14 @@ def cir():
                                                dcc.Slider(id='sl_periods', min=1, max=20, step=1, value=10),
                                                html.Label(id='out_periods')], style={'display': 'inline-block'}),
                                      html.Div([html.Label(children='Select steps_per_yr: '),
-                                               dcc.Slider(id='sl_stperyr', min=1, max=20, step=1, value=12),
+                                               dcc.Slider(id='sl_stperyr', min=1, max=10000, step=1, value=12),
                                                html.Label(id='out_stperyr')], style={'display': 'inline-block'}),
                                      html.Div([html.Label(children='Select N-Scenarios: '),
                                                dcc.Slider(id='sl_scenarios', min=1, max=250, step=1, value=10),
                                                html.Label(id='out_scenarios')], style={'display': 'inline-block'})
                                      ], style= {'display': 'flex', 'justify-content': 'space-evenly', 'padding-top': '25px'}),
-                           html.Div([dcc.Graph(id='cir')])])
+                           html.Div([dcc.Graph(id='cir')]),
+                           html.Div([dcc.Graph(id='hist_tfr')])])
 
     upd_label('out_av', 'sl_av')
     upd_label('out_rf', 'sl_rf')
@@ -779,7 +780,8 @@ def cir():
     upd_label('out_stperyr', 'sl_stperyr')
     upd_label('out_scenarios', 'sl_scenarios')
 
-    @app.callback(Output('cir', 'figure'),
+    @app.callback([Output('cir', 'figure'),
+                   Output('hist_tfr', 'figure')],
                   [Input('sub_cir', 'n_clicks')],
                   [State('sl_rf', 'value'),
                    State('sl_periods', 'value'),
@@ -793,6 +795,7 @@ def cir():
         def get_scatter_points(df: pd.DataFrame):
             return df.aggregate(lambda scenario: go.Scatter(x=scenario.index, y=scenario)).tolist()
         dt = 1/steps_per_yr
+        b = conv_to_short_rate(b) #Since short rates are being modelled
         sr = conv_to_short_rate(rf)
         total_time_steps = int(n_years*steps_per_yr)+1
         shock = np.random.normal(loc=0, scale=volatility*np.sqrt(dt), size=(total_time_steps, n_scenarios))
@@ -816,21 +819,25 @@ def cir():
             dr = drift + shock[steps]
             rates[steps] = prev_rate + dr
             zcb[steps] = price(n_years-steps*dt, rates[steps])
-        rates_gbm_df = pd.DataFrame(data=conv_to_annualised_rate(rates))
-        zcb_gbm_df = pd.DataFrame(data=zcb)
+        rates_gbm_df = pd.DataFrame(data=conv_to_annualised_rate(rates), index=range(total_time_steps))
+        zcb_gbm_df = pd.DataFrame(data=zcb, index=range(total_time_steps))
         liabilities = zcb_gbm_df #Assuming same liab as that of ZCB
 
         #Investments in ZCB at T0
         n_bonds = av/zcb_gbm_df.loc[0,0]
         av_zcb_df = n_bonds * zcb_gbm_df
-        fr_zcb_df = (av_zcb_df/liabilities).pct_change().dropna()
+        fr_zcb = av_zcb_df/liabilities
+        fr_zcb_df = (fr_zcb).pct_change().dropna()
 
         #Cash investments cumprod
         fd_rates = rates_gbm_df.apply(lambda x: x/steps_per_yr)
         av_cash_df = drawdown(fd_rates, retrive_index=True, init_wealth=av, is1p=False)
-        fr_cash_df = (av_cash_df/liabilities).pct_change().dropna()
+        fr_cash = av_cash_df/liabilities
+        fr_cash_df = (fr_cash).pct_change().dropna()
 
-        fig = make_subplots(rows=3, cols=2, shared_xaxes=True, subplot_titles=("CIR model of Interest rates", "ZCB Prices based on CIR",
+        fig = make_subplots(rows=3, cols=2, shared_xaxes=True,specs=[[{}, {}],
+                                                                     [{}, {}],
+                                                                     [{}, {}]], subplot_titles=("CIR model of Interest rates", "ZCB Prices based on CIR",
                                                                                "Cash invested in FD with rolling maturity", "ZCB investments at T=0", "Funding Ratio %ch-Cash",
                                                                                "Funding Ratio %ch-ZCB"))
         rates_gbm = get_scatter_points(rates_gbm_df)
@@ -839,6 +846,9 @@ def cir():
         av_cash_gbm = get_scatter_points(av_cash_df)
         fr_cash_gbm = get_scatter_points(fr_cash_df)
         fr_zcb_gbm = get_scatter_points(fr_zcb_df)
+        tfr_cash_hist = go.Histogram(x=fr_cash.iloc[-1], name='fr-cash', yaxis='y1')
+        tfr_zcb_hist = fr_zcb.iloc[-1].loc[0]
+
         for rates_data in rates_gbm:
             fig.add_trace(rates_data, row=1, col=1)
         for zcb_price in zcb_gbm:
@@ -851,6 +861,9 @@ def cir():
             fig.add_trace(fr_cash, row=3, col=1)
         for fr_zcb in fr_zcb_gbm:
             fig.add_trace(fr_zcb, row=3, col=2)
+
+
+        b = conv_to_annualised_rate(b)
         mrl = [dict(type='line', xref='x1', yref='y1', x0=0, x1=total_time_steps-1, y0=b, y1=b, name='Mean Reverting Level',
                     line=dict(dash='dashdot', width=5))]
         fig.update_xaxes(matches='x')
@@ -858,8 +871,13 @@ def cir():
                           height=1000,
                           hovermode='closest',
                           shapes=mrl)
-        return fig
-
+        tfr_zcb = [dict(type='line', xref='x1', yref='paper', y0=0, y1=0, x0=tfr_zcb_hist, x1=tfr_zcb_hist, name='tfr-zcb',
+                        line=dict(dash='dashdot', width=5))]
+        layout = go.Layout(yaxis=dict(title='tfr_cash'),
+                           hovermode='closest',
+                           shapes=tfr_zcb)
+        hist_fig = go.Figure(data=[tfr_cash_hist], layout=layout)
+        return fig, hist_fig
 
     app.run_server()
 
