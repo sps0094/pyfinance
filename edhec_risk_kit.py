@@ -12,6 +12,7 @@ import scipy.stats as sp
 from scipy.optimize import Bounds, minimize
 from plotly.subplots import make_subplots
 from dash.dependencies import Input, Output, State
+import math
 import ast
 from ipywidgets import widgets
 import json
@@ -752,7 +753,7 @@ def cir():
                                     dcc.Slider(id='sl_ltrf', min=0.01, max=0.10, step=0.005, value=0.03),
                                     html.Label(id='out_ltrf')], style={'display': 'inline-block'}),
                            html.Div([html.Label(children='Select speed of MR: '),
-                                    dcc.Slider(id='sl_speed', min=0, max=1, step=0.05, value=0.5),
+                                    dcc.Slider(id='sl_speed', min=0.2, max=1, step=0.05, value=0.5),
                                     html.Label(id='out_speed')], style={'display': 'inline-block'}),
                            html.Div([html.Label(children='Select volatility: '),
                                      dcc.Slider(id='sl_vola', min=0, max=1, step=0.05, value=0.15),
@@ -765,7 +766,7 @@ def cir():
                                                dcc.Slider(id='sl_stperyr', min=1, max=10000, step=1, value=12),
                                                html.Label(id='out_stperyr')], style={'display': 'inline-block'}),
                                      html.Div([html.Label(children='Select N-Scenarios: '),
-                                               dcc.Slider(id='sl_scenarios', min=1, max=250, step=1, value=10),
+                                               dcc.Slider(id='sl_scenarios', min=2, max=250, step=1, value=10),
                                                html.Label(id='out_scenarios')], style={'display': 'inline-block'})
                                      ], style= {'display': 'flex', 'justify-content': 'space-evenly', 'padding-top': '25px'}),
                            html.Div([dcc.Graph(id='cir')]),
@@ -802,22 +803,23 @@ def cir():
         rates = np.empty_like(shock)
         # For ZCB price generation
         # Formula - please refer cir1.png
-        h = np.sqrt(a**2 + 2*volatility**2)
+        h = math.sqrt(a**2 + 2*volatility**2)
         zcb = np.empty_like(shock)
 
         def price(ttm, rf):
-            _A = ((2*h*np.exp((h+a)*ttm/2))/(2*h+(h+a)*np.exp(h*ttm)-1))**(2*a*b/volatility**2)
-            _B = (2*(np.exp(h*ttm)-1))/(2*h + (h+a)*(np.exp(h*ttm)-1))
+            _A = ((2*h*math.exp((h+a)*ttm/2))/(2*h+(h+a)*(math.exp(h*ttm)-1)))**(2*a*b/volatility**2)
+            _B = (2*(math.exp(h*ttm)-1))/(2*h + (h+a)*(math.exp(h*ttm)-1))
             _P = _A*np.exp(-_B*rf)
             return _P
         zcb[0] = price(n_years, rf)
+
         rates[0] = sr
         for steps in range(1, total_time_steps):
             prev_rate = rates[steps-1]
-            drift = a * (b - prev_rate)
+            drift = a * (b - prev_rate) * dt
             shock[steps] = shock[steps] * np.sqrt(prev_rate)
             dr = drift + shock[steps]
-            rates[steps] = prev_rate + dr
+            rates[steps] = abs(prev_rate + dr)
             zcb[steps] = price(n_years-steps*dt, rates[steps])
         rates_gbm_df = pd.DataFrame(data=conv_to_annualised_rate(rates), index=range(total_time_steps))
         zcb_gbm_df = pd.DataFrame(data=zcb, index=range(total_time_steps))
@@ -826,7 +828,7 @@ def cir():
         #Investments in ZCB at T0
         n_bonds = av/zcb_gbm_df.loc[0,0]
         av_zcb_df = n_bonds * zcb_gbm_df
-        fr_zcb = av_zcb_df/liabilities
+        fr_zcb = (av_zcb_df/liabilities).round(decimals=6)
         fr_zcb_df = (fr_zcb).pct_change().dropna()
 
         #Cash investments cumprod
@@ -846,8 +848,8 @@ def cir():
         av_cash_gbm = get_scatter_points(av_cash_df)
         fr_cash_gbm = get_scatter_points(fr_cash_df)
         fr_zcb_gbm = get_scatter_points(fr_zcb_df)
-        tfr_cash_hist = go.Histogram(x=fr_cash.iloc[-1], name='fr-cash', yaxis='y1')
-        tfr_zcb_hist = fr_zcb.iloc[-1].loc[0]
+        tfr_cash_hist = fr_cash.iloc[-1].tolist()
+        tfr_zcb_hist = fr_zcb.iloc[-1].loc[0] #since all are same
 
         for rates_data in rates_gbm:
             fig.add_trace(rates_data, row=1, col=1)
@@ -871,13 +873,11 @@ def cir():
                           height=1000,
                           hovermode='closest',
                           shapes=mrl)
-        tfr_zcb = [dict(type='line', xref='x1', yref='paper', y0=0, y1=0, x0=tfr_zcb_hist, x1=tfr_zcb_hist, name='tfr-zcb',
+        tfr_zcb = [dict(type='line', xref='x1', yref='paper', y0=0, y1=1, x0=tfr_zcb_hist, x1=tfr_zcb_hist, name='tfr-zcb',
                         line=dict(dash='dashdot', width=5))]
-        layout = go.Layout(yaxis=dict(title='tfr_cash'),
-                           hovermode='closest',
-                           shapes=tfr_zcb)
-        hist_fig = go.Figure(data=[tfr_cash_hist], layout=layout)
-        return fig, hist_fig
+        tfr_cash_distplot = ff.create_distplot(hist_data=[tfr_cash_hist], group_labels=["tfr_cash"], show_hist=False)
+        tfr_cash_distplot.update_layout(shapes=tfr_zcb, hovermode='closest')
+        return fig, tfr_cash_distplot
 
     app.run_server()
 
