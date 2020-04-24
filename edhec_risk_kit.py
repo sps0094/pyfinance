@@ -840,7 +840,7 @@ def cir():
         fig = make_subplots(rows=3, cols=2, shared_xaxes=True,specs=[[{}, {}],
                                                                      [{}, {}],
                                                                      [{}, {}]], subplot_titles=("CIR model of Interest rates", "ZCB Prices based on CIR",
-                                                                               "Cash invested in FD with rolling maturity", "ZCB investments at T=0", "Funding Ratio %ch-Cash",
+                                                                               "Cash invested in FD with rolling maturity", " {:.4f} ZCB investments at T=0".format(n_bonds), "Funding Ratio %ch-Cash",
                                                                                "Funding Ratio %ch-ZCB"))
         rates_gbm = get_scatter_points(rates_gbm_df)
         zcb_gbm = get_scatter_points(zcb_gbm_df)
