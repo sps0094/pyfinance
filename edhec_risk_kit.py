@@ -703,13 +703,34 @@ def gbm(s0=100):
         app.run_server()
 
 
-def get_discount_factor(disc_rate, periods):
-    return np.power((1 + disc_rate), -periods)
+def get_discount_factor(disc_rate:pd.DataFrame, period):
+    disc_factors_df = disc_rate.apply(lambda r: np.power((1+r), -period))
+    return disc_factors_df
 
 
-def get_present_value(liabilities: pd.Series, disc_rate):
-    present_value = (liabilities * get_discount_factor(disc_rate, liabilities.index)).sum()
-    return present_value
+def get_present_value(cash_flow: pd.Series, disc_rate: pd.DataFrame):
+    disc_factors = get_discount_factor(disc_rate, cash_flow.index)
+    present_value = disc_factors.apply(lambda disc_factor: disc_factor*cash_flow).sum()
+    return np.asarray(present_value)
+
+
+def gen_bond_cash_flows(n_years, steps_per_year, cr, fv):
+    dt = 1/steps_per_year
+    total_time_steps = int(n_years*steps_per_year)+1
+    periodicity_adj_cr = cr * dt
+    coupon_cf = fv * periodicity_adj_cr
+    bond_cf = pd.Series([coupon_cf for i in range(0, total_time_steps)])
+    bond_cf.iloc[-1] += fv
+    return bond_cf
+
+
+def get_bond_prices(n_years, steps_per_year, disc_rate, cr=0.04, fv=100):
+    dt = 1 / steps_per_year
+    if isinstance(disc_rate, pd.DataFrame):
+        periodicity_adj_disc_rate = disc_rate * dt
+        bond_cf = gen_bond_cash_flows(n_years, steps_per_year, cr, fv)
+        bond_prices = get_present_value(bond_cf, periodicity_adj_disc_rate)
+        return bond_prices
 
 
 def get_funding_ratio(liabilities: pd.Series, assets, disc_rate):
@@ -805,6 +826,7 @@ def cir():
         # Formula - please refer cir1.png
         h = math.sqrt(a**2 + 2*volatility**2)
         zcb = np.empty_like(shock)
+        cb = np.empty_like(shock)
 
         def price(ttm, rf):
             _A = ((2*h*math.exp((h+a)*ttm/2))/(2*h+(h+a)*(math.exp(h*ttm)-1)))**(2*a*b/volatility**2)
@@ -825,6 +847,14 @@ def cir():
         zcb_gbm_df = pd.DataFrame(data=zcb, index=range(total_time_steps))
         liabilities = zcb_gbm_df #Assuming same liab as that of ZCB
 
+        #CB prices
+        for step in range(0, total_time_steps):
+            ttm = total_time_steps - step
+            disc_rate = rates_gbm_df.loc[step]
+            disc_rate = pd.DataFrame(np.asarray(pd.concat([disc_rate]*ttm, axis=0)).reshape(ttm, n_scenarios))
+            cb[step] = get_bond_prices(n_years-step*dt, steps_per_yr, disc_rate, 0.04, fv=100)
+        cb_df = pd.DataFrame(cb)
+
         #Investments in ZCB at T0
         n_bonds = av/zcb_gbm_df.loc[0,0]
         av_zcb_df = n_bonds * zcb_gbm_df
@@ -837,13 +867,16 @@ def cir():
         fr_cash = av_cash_df/liabilities
         fr_cash_df = (fr_cash).pct_change().dropna()
 
-        fig = make_subplots(rows=3, cols=2, shared_xaxes=True,specs=[[{}, {}],
+        fig = make_subplots(rows=4, cols=2, shared_xaxes=True,specs=[[{'colspan': 2}, {}],
                                                                      [{}, {}],
-                                                                     [{}, {}]], subplot_titles=("CIR model of Interest rates", "ZCB Prices based on CIR",
-                                                                               "Cash invested in FD with rolling maturity", " {:.4f} ZCB investments at T=0".format(n_bonds), "Funding Ratio %ch-Cash",
-                                                                               "Funding Ratio %ch-ZCB"))
+                                                                     [{}, {}],
+                                                                     [{}, {}]], subplot_titles=("CIR model of Interest rates"," ", "ZCB Prices based on CIR",
+                                                                                                "CB Prices based on CIR", "Cash invested in FD with rolling maturity",
+                                                                                                " {:.4f} ZCB investments at T=0".format(n_bonds),"Funding Ratio %ch-Cash",
+                                                                                                "Funding Ratio %ch-ZCB"))
         rates_gbm = get_scatter_points(rates_gbm_df)
         zcb_gbm = get_scatter_points(zcb_gbm_df)
+        cb_gbm = get_scatter_points(cb_df)
         av_zcb_gbm = get_scatter_points(av_zcb_df)
         av_cash_gbm = get_scatter_points(av_cash_df)
         fr_cash_gbm = get_scatter_points(fr_cash_df)
@@ -854,15 +887,17 @@ def cir():
         for rates_data in rates_gbm:
             fig.add_trace(rates_data, row=1, col=1)
         for zcb_price in zcb_gbm:
-            fig.add_trace(zcb_price, row=1, col=2)
+            fig.add_trace(zcb_price, row=2, col=1)
+        for cb_price in cb_gbm:
+            fig.add_trace(cb_price, row=2, col=2)
         for av_cash in av_cash_gbm:
-            fig.add_trace(av_cash, row=2, col=1)
+            fig.add_trace(av_cash, row=3, col=1)
         for av_zcb in av_zcb_gbm:
-            fig.add_trace(av_zcb, row=2, col=2)
+            fig.add_trace(av_zcb, row=3, col=2)
         for fr_cash in fr_cash_gbm:
-            fig.add_trace(fr_cash, row=3, col=1)
+            fig.add_trace(fr_cash, row=4, col=1)
         for fr_zcb in fr_zcb_gbm:
-            fig.add_trace(fr_zcb, row=3, col=2)
+            fig.add_trace(fr_zcb, row=4, col=2)
 
 
         b = conv_to_annualised_rate(b)
