@@ -34,4 +34,9 @@ import pandas as pd
 
 
 #gbm
-erk.cir()
+# erk.cir()
+
+liab, mac_dur = erk.get_present_value(pd.Series(data=[100000, 50000], index=[10,12]), disc_rate=0.03)
+b1, mac_dur1 = erk.get_bond_prices(10, 1, 0.04)
+b1, mac_dur2 = erk.get_bond_prices(20,1,0.04)
+print()
