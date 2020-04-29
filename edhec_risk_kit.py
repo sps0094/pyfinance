@@ -721,14 +721,13 @@ def get_present_value(cash_flow: pd.Series, disc_rate: pd.DataFrame):
     disc_factors = get_discount_factor(disc_rate, cash_flow.index+1)
     present_value_factors = disc_factors.apply(lambda disc_factor: disc_factor*cash_flow)
     present_value = present_value_factors.sum()
-    temp = np.asarray(present_value)
     mac_dur = get_macaulay_duration(present_value_factors)
     return np.asarray(present_value), mac_dur
 
 
-def gen_bond_cash_flows(n_years, steps_per_year, cr, fv):
+def gen_bond_cash_flows(tenor, steps_per_year, cr, fv):
     dt = 1/steps_per_year
-    total_time_steps = int(n_years*steps_per_year)
+    total_time_steps = int(tenor*steps_per_year)
     periodicity_adj_cr = cr * dt
     coupon_cf = fv * periodicity_adj_cr
     bond_cf = pd.Series([coupon_cf for i in range(0, total_time_steps)])
@@ -736,22 +735,83 @@ def gen_bond_cash_flows(n_years, steps_per_year, cr, fv):
     return bond_cf
 
 
-def get_bond_prices(n_years, steps_per_year, disc_rate, cr=0.03, fv=100):
+def get_bond_prices(tenor, steps_per_year, disc_rate, cr=0.03, fv=100):
     dt = 1 / steps_per_year
     if isinstance(disc_rate, pd.DataFrame):
         periodicity_adj_disc_rate = disc_rate * dt
-        bond_cf = gen_bond_cash_flows(n_years, steps_per_year, cr, fv)
+        bond_cf = gen_bond_cash_flows(tenor, steps_per_year, cr, fv)
         bond_prices, mac_dur = get_present_value(bond_cf, periodicity_adj_disc_rate)
-        return bond_prices, mac_dur
+        return bond_prices, mac_dur, bond_cf
     else:
-        total_time_steps = int(n_years*steps_per_year)
+        total_time_steps = int(tenor*steps_per_year)
         disc_rate = pd.DataFrame(data=np.repeat(disc_rate, total_time_steps).reshape(total_time_steps,1))
-        return get_bond_prices(n_years, steps_per_year, disc_rate, cr, fv)
+        return get_bond_prices(tenor, steps_per_year, disc_rate, cr, fv)
 
+def get_funding_ratio(pv_liabilities, pv_assets):
+    return np.divide(pv_assets, pv_liabilities)
 
-def get_funding_ratio(liabilities: pd.Series, assets, disc_rate):
-    pv = get_present_value(liabilities, disc_rate)
-    return [np.divide(assets, pv), pv]
+def get_duration_matched_pf(liabilities: pd.Series, n_years: list, steps_per_year: list, disc_rate, cr: list, fv: list, av, fr_change_sim: True):
+    pv_liabilities, mac_dur_liabilities = get_present_value(liabilities, disc_rate)
+    pv_bond_1, mac_dur_bond_1, bond_cf_1 = get_bond_prices(n_years[0], steps_per_year[0], disc_rate, cr[0], fv[0])
+    pv_bond_2, mac_dur_bond_2, bond_cf_2 = get_bond_prices(n_years[1], steps_per_year[1], disc_rate, cr[1], fv[1])
+    bond_cf_1.index += 1
+    bond_cf_2.index += 1
+    mac_dur_bond_1 = mac_dur_bond_1.loc[0]
+    mac_dur_bond_2 = mac_dur_bond_2.loc[0]
+    mac_dur_liabilities = mac_dur_liabilities.loc[0]
+    pv_bond_1 = pv_bond_1[0]
+    pv_bond_2 = pv_bond_2[0]
+    pv_liabilities = pv_liabilities[0]
+    if mac_dur_bond_1 > mac_dur_bond_2:
+        long_dur_bond = [pv_bond_1, mac_dur_bond_1, bond_cf_1]
+        short_dur_bond = [pv_bond_2, mac_dur_bond_2, bond_cf_2]
+    else:
+        long_dur_bond = [pv_bond_2, mac_dur_bond_2, bond_cf_2]
+        short_dur_bond = [pv_bond_1, mac_dur_bond_1, bond_cf_1]
+
+    #computes duration match wts
+    wt_short_dur_bond = (long_dur_bond[1] - mac_dur_liabilities)/(long_dur_bond[1] - short_dur_bond[1])
+    wt_long_dur_bond = 1 - wt_short_dur_bond
+    alloc_long_dur_bond = av*wt_long_dur_bond
+    alloc_short_dur_bond = av*wt_short_dur_bond
+    n_long_dur_bond_match = alloc_long_dur_bond / long_dur_bond[0]
+    n_short_dur_bond_match = alloc_short_dur_bond / short_dur_bond[0]
+    n_long_bond_full = av/long_dur_bond[0]
+    n_short_bond_full = av/short_dur_bond[0]
+    dur_matched_bond_cf = pd.concat([long_dur_bond[2]*n_long_dur_bond_match, short_dur_bond[2]*n_short_dur_bond_match])
+    long_bond_cf_full = long_dur_bond[2]*n_long_bond_full
+    short_bond_cf_full = short_dur_bond[2]*n_short_bond_full
+    pv_pf, mac_dur_pf = get_present_value(dur_matched_bond_cf, disc_rate)
+    pv_pf = pv_pf[0]
+    mac_dur_pf = mac_dur_pf[0]
+    if fr_change_sim:
+        disc_rates = np.linspace(0, 0.1, 50)
+        fr_long = []
+        fr_short = []
+        fr_match = []
+        dr_list = []
+        for dr in disc_rates:
+            dr_list.append(dr)
+            liab, dur_li = get_present_value(liabilities, dr)
+            l_bond, dur_l = get_present_value(long_bond_cf_full, dr)
+            s_bond, dur_s = get_present_value(short_bond_cf_full, dr)
+            m_bond, dur_m = get_present_value(dur_matched_bond_cf, dr)
+            fr_long.append(get_funding_ratio(liab[0], l_bond[0]))
+            fr_short.append(get_funding_ratio(liab[0], s_bond[0]))
+            fr_match.append(get_funding_ratio(liab[0], m_bond[0]))
+        fr = pd.DataFrame({
+            'dr': dr_list,
+            'fr_long': fr_long,
+            'fr_short': fr_short,
+            'fr_match': fr_match,
+        }).set_index(keys='dr')
+        app = dash.Dash()
+        data = [go.Scatter(x=fr.index,
+                           y=fr[col],
+                           mode='lines',
+                           name=col) for col in fr.columns]
+        app.layout = html.Div([dcc.Graph(id='cfr', figure=dict(data=data))])
+        app.run_server()
 
 
 def conv_to_short_rate(r):
@@ -769,6 +829,77 @@ def conv_to_annualised_rate(sr):
     :return: annualised rate for a given short rate
     """
     return np.expm1(sr)
+
+
+def get_rates_gbm(rf, n_years, steps_per_yr, n_scenarios, volatility, a, b, tenor=0, cr=0.05, fv=100, ann_ret=False):
+    dt = 1 / steps_per_yr
+    b = conv_to_short_rate(b)  # Since short rates are being modelled
+    sr = conv_to_short_rate(rf)
+    total_time_steps = int(n_years * steps_per_yr) + 1
+    shock = np.random.normal(loc=0, scale=volatility * np.sqrt(dt), size=(total_time_steps, n_scenarios))
+    rates = np.empty_like(shock)
+    # For ZCB price generation
+    # Formula - please refer cir1.png
+    h = math.sqrt(a ** 2 + 2 * volatility ** 2)
+    zcb = np.empty_like(shock)
+
+    def price(ttm, rf):
+        _A = ((2 * h * math.exp((h + a) * ttm / 2)) / (2 * h + (h + a) * (math.exp(h * ttm) - 1))) ** (
+                    2 * a * b / volatility ** 2)
+        _B = (2 * (math.exp(h * ttm) - 1)) / (2 * h + (h + a) * (math.exp(h * ttm) - 1))
+        _P = _A * np.exp(-_B * rf)
+        return _P
+
+    zcb[0] = price(n_years, rf)
+
+    rates[0] = sr
+    for steps in range(1, total_time_steps):
+        prev_rate = rates[steps - 1]
+        drift = a * (b - prev_rate) * dt
+        shock[steps] = shock[steps] * np.sqrt(prev_rate)
+        dr = drift + shock[steps]
+        rates[steps] = abs(prev_rate + dr)
+        zcb[steps] = price(n_years - steps * dt, rates[steps])
+    rates_gbm_df = pd.DataFrame(data=conv_to_annualised_rate(rates), index=range(total_time_steps))
+    zcb_gbm_df = pd.DataFrame(data=zcb, index=range(total_time_steps))
+    if ann_ret:
+        cb_df, mac_dur_df, bond_cf = get_bond_gbm(rates_gbm_df, n_years, steps_per_yr, tenor, cr, fv)
+        bond_ann_ret = get_bond_tr(cb_df, bond_cf, n_scenarios)
+        return bond_ann_ret, cb_df
+    return rates_gbm_df, zcb_gbm_df
+
+
+def get_bond_gbm(rates_gbm_df: pd.DataFrame, n_years, steps_per_yr, tenor=0, cr=0.05, fv=100):
+    bond_cf = 0
+    dt = 1/steps_per_yr
+    total_time_steps = int(n_years*steps_per_yr)
+    n_scenarios = len(rates_gbm_df.columns)
+    cb = np.repeat(0.0, (total_time_steps) * n_scenarios).reshape(total_time_steps, n_scenarios)
+    mac_dur = np.empty_like(cb)
+    # CB prices
+    for step in range(0, total_time_steps):
+        ttm = total_time_steps - step
+        disc_rate = rates_gbm_df.loc[step]
+        disc_rate = pd.DataFrame(np.asarray(pd.concat([disc_rate] * ttm, axis=0)).reshape(ttm, n_scenarios))
+        cb[step], mac_dur[step], temp = get_bond_prices(n_years - step * dt, steps_per_yr, disc_rate, cr, fv)
+        if step == 0:
+            bond_cf = temp
+    cb_df = pd.DataFrame(cb)
+    mac_dur_df = pd.DataFrame(mac_dur)
+    cb_df = cb_df.append(cb_df.iloc[-1] * (rates_gbm_df.iloc[-2] * dt + 1), ignore_index=True)
+    return cb_df, mac_dur_df, bond_cf
+
+
+def get_bond_tr(cb_df, bond_cf, n_scenarios):
+    bond_cf.drop(bond_cf.tail(1).index, inplace=True)
+    bond_cf.index += 1
+    concat_cf = pd.concat([bond_cf] * n_scenarios, axis=1)
+    concat_cf.loc[0] = 0
+    concat_cf.loc[len(concat_cf.index)] = 0
+    tcf_df = (cb_df + concat_cf)
+    tr_df = np.divide(tcf_df, cb_df.shift()) - 1
+    bond_ann_ret = get_ann_return(tr_df)
+    return bond_ann_ret
 
 
 def cir():
@@ -832,60 +963,23 @@ def cir():
     def upd_cir(n_clicks, rf, n_years, steps_per_yr, n_scenarios, volatility, a, b, av):
         def get_scatter_points(df: pd.DataFrame):
             return df.aggregate(lambda scenario: go.Scatter(x=scenario.index, y=scenario)).tolist()
-        dt = 1/steps_per_yr
-        b = conv_to_short_rate(b) #Since short rates are being modelled
-        sr = conv_to_short_rate(rf)
-        total_time_steps = int(n_years*steps_per_yr)+1
-        total_time_steps_cb = total_time_steps-1
-        shock = np.random.normal(loc=0, scale=volatility*np.sqrt(dt), size=(total_time_steps, n_scenarios))
-        rates = np.empty_like(shock)
-        # For ZCB price generation
-        # Formula - please refer cir1.png
-        h = math.sqrt(a**2 + 2*volatility**2)
-        zcb = np.empty_like(shock)
-        cb = np.repeat(0.0, (total_time_steps_cb)*n_scenarios).reshape(total_time_steps_cb, n_scenarios)
-        mac_dur = np.empty_like(cb)
+        rates_gbm_df, zcb_gbm_df = get_rates_gbm(rf, n_years, steps_per_yr, n_scenarios, volatility, a, b)
+        liabilities = zcb_gbm_df  # Assuming same liab as that of ZCB
+        cb_df, mac_dur_df, bond_cf = get_bond_gbm(rates_gbm_df,n_years=n_years, steps_per_yr=steps_per_yr)
 
-        def price(ttm, rf):
-            _A = ((2*h*math.exp((h+a)*ttm/2))/(2*h+(h+a)*(math.exp(h*ttm)-1)))**(2*a*b/volatility**2)
-            _B = (2*(math.exp(h*ttm)-1))/(2*h + (h+a)*(math.exp(h*ttm)-1))
-            _P = _A*np.exp(-_B*rf)
-            return _P
-        zcb[0] = price(n_years, rf)
-
-        rates[0] = sr
-        for steps in range(1, total_time_steps):
-            prev_rate = rates[steps-1]
-            drift = a * (b - prev_rate) * dt
-            shock[steps] = shock[steps] * np.sqrt(prev_rate)
-            dr = drift + shock[steps]
-            rates[steps] = abs(prev_rate + dr)
-            zcb[steps] = price(n_years-steps*dt, rates[steps])
-        rates_gbm_df = pd.DataFrame(data=conv_to_annualised_rate(rates), index=range(total_time_steps))
-        zcb_gbm_df = pd.DataFrame(data=zcb, index=range(total_time_steps))
-        liabilities = zcb_gbm_df #Assuming same liab as that of ZCB
-
-        #CB prices
-        for step in range(0, total_time_steps_cb):
-            ttm = total_time_steps_cb - step
-            disc_rate = rates_gbm_df.loc[step]
-            disc_rate = pd.DataFrame(np.asarray(pd.concat([disc_rate]*ttm, axis=0)).reshape(ttm, n_scenarios))
-            cb[step], mac_dur[step] = get_bond_prices(n_years-step*dt, steps_per_yr, disc_rate, 0.03, fv=100)
-        cb_df = pd.DataFrame(cb)
-        mac_dur_df = pd.DataFrame(mac_dur)
-        cb_df = cb_df.append(cb_df.iloc[-1]*(rates_gbm_df.iloc[-2]*dt+1), ignore_index=True)
-
-        #Investments in ZCB at T0
+        # Investments in ZCB at T0
         n_bonds = av/zcb_gbm_df.loc[0,0]
         av_zcb_df = n_bonds * zcb_gbm_df
-        fr_zcb = (av_zcb_df/liabilities).round(decimals=6)
-        fr_zcb_df = (fr_zcb).pct_change().dropna()
+        # fr_zcb = (av_zcb_df/liabilities).round(decimals=6)
+        fr_zcb = get_funding_ratio(liabilities, av_zcb_df).round(decimals=6)
+        fr_zcb_df = fr_zcb.pct_change().dropna()
 
-        #Cash investments cumprod
+        # Cash investments cumprod
         fd_rates = rates_gbm_df.apply(lambda x: x/steps_per_yr)
         av_cash_df = drawdown(fd_rates, retrive_index=True, init_wealth=av, is1p=False)
-        fr_cash = av_cash_df/liabilities
-        fr_cash_df = (fr_cash).pct_change().dropna()
+        # fr_cash = av_cash_df/liabilities
+        fr_cash = get_funding_ratio(liabilities, av_cash_df)
+        fr_cash_df = fr_cash.pct_change().dropna()
 
         fig = make_subplots(rows=4, cols=2, shared_xaxes=True,specs=[[{}, {}],
                                                                      [{}, {}],
@@ -903,7 +997,7 @@ def cir():
         fr_cash_gbm = get_scatter_points(fr_cash_df)
         fr_zcb_gbm = get_scatter_points(fr_zcb_df)
         tfr_cash_hist = fr_cash.iloc[-1].tolist()
-        tfr_zcb_hist = fr_zcb.iloc[-1].loc[0] #since all are same
+        tfr_zcb_hist = fr_zcb.iloc[-1].loc[0] # since all are same
 
         for rates_data in rates_gbm:
             fig.add_trace(rates_data, row=1, col=1)
@@ -922,9 +1016,8 @@ def cir():
         for fr_zcb in fr_zcb_gbm:
             fig.add_trace(fr_zcb, row=4, col=2)
 
-
         b = conv_to_annualised_rate(b)
-        mrl = [dict(type='line', xref='x1', yref='y1', x0=0, x1=total_time_steps-1, y0=b, y1=b, name='Mean Reverting Level',
+        mrl = [dict(type='line', xref='x1', yref='y1', x0=0, x1=n_years*steps_per_yr, y0=b, y1=b, name='Mean Reverting Level',
                     line=dict(dash='dashdot', width=5))]
         fig.update_xaxes(matches='x')
         fig.update_layout(showlegend=False,
