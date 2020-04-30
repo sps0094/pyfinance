@@ -718,6 +718,14 @@ def get_present_value(cash_flow: pd.Series, disc_rate: pd.DataFrame):
         cash_flow.index -= 1 #To correct for cash_flow.index+1 when called from cir()
         disc_rate = pd.DataFrame(data=[disc_rate for t in cash_flow.index], index=cash_flow.index)
         get_present_value(cash_flow, disc_rate)
+    if not len(disc_rate.index) == len(cash_flow.index):
+        dr_steps = disc_rate.shape[0]
+        cf_steps = cash_flow.shape[0]
+        shortfall = cf_steps - dr_steps
+        dr_last = disc_rate.iloc[-1]
+        append_rate_df = pd.DataFrame(data=np.asarray(pd.concat([dr_last] * shortfall, axis=0)).reshape(shortfall, disc_rate.shape[1]),
+                          index=range(dr_steps, cf_steps, 1))
+        disc_rate = disc_rate.append(append_rate_df)
     disc_factors = get_discount_factor(disc_rate, cash_flow.index+1)
     present_value_factors = disc_factors.apply(lambda disc_factor: disc_factor*cash_flow)
     present_value = present_value_factors.sum()
@@ -891,7 +899,14 @@ def get_bond_gbm(rates_gbm_df: pd.DataFrame, n_years, steps_per_yr, tenor=0, cr=
 
 
 def get_bond_tr(cb_df, bond_cf, n_scenarios):
-    bond_cf.drop(bond_cf.tail(1).index, inplace=True)
+    print()
+    if not len(cb_df.index) - len(bond_cf) == 1:
+        dr_steps = cb_df.shape[0]
+        cf_steps = bond_cf.shape[0]
+        shortfall = cf_steps - dr_steps + 2
+        bond_cf.drop(bond_cf.tail(shortfall).index, inplace=True)
+    else:
+        bond_cf.drop(bond_cf.tail(1).index, inplace=True)
     bond_cf.index += 1
     concat_cf = pd.concat([bond_cf] * n_scenarios, axis=1)
     concat_cf.loc[0] = 0

@@ -34,23 +34,23 @@ import pandas as pd
 
 
 #gbm
-# erk.cir()
+erk.cir()
 # print(erk.get_bond_tr(0,0,0))
 # liab, mac_dur = erk.get_present_value(pd.Series(data=[100000, 100000], index=[10,12]), disc_rate=0.04)
 # b1, mac_dur1 = erk.get_bond_prices(10, 1, 0.04, 0.05, 1000)
 # b1, mac_dur2 = erk.get_bond_prices(20, 1, 0.04, 0.05, 1000)
 # print()
-liab = pd.Series(data=[100000, 100000], index=[10, 12])
-erk.get_duration_matched_pf(liab, [10,20], [1,1], 0.04, [0.05, 0.05], [1000, 1000], 130000, fr_change_sim=True)
+# liab = pd.Series(data=[100000, 100000], index=[10, 12])
+# erk.get_duration_matched_pf(liab, [10,20], [1,1], 0.04, [0.05, 0.05], [1000, 1000], 130000, fr_change_sim=True)
 
 # bond_ret_10, cb_10 = erk.get_rates_gbm(rf=0.03,
 #                   n_years=10,
 #                   steps_per_yr=12,
-#                   n_scenarios=100,
+#                   n_scenarios=10,
 #                   volatility=0.15,
 #                   a=0.5,
 #                   b=0.03,
-#                   tenor=10,
+#                   tenor=20,
 #                   cr=0.05,
 #                   fv=100,
 #                   ann_ret=True)
@@ -61,7 +61,7 @@ erk.get_duration_matched_pf(liab, [10,20], [1,1], 0.04, [0.05, 0.05], [1000, 100
 #                   volatility=0.15,
 #                   a=0.5,
 #                   b=0.03,
-#                   tenor=10,
+#                   tenor=20,
 #                   cr=0.05,
 #                   fv=100,
 #                   ann_ret=True)
