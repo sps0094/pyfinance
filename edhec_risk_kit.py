@@ -592,7 +592,32 @@ def plot(df, mode, reqd_strategies: list, risk_plot: list, poi, var_method, alph
         app.run_server()
 
 
-def gbm(s0=100):
+def gbm_stock(s0, n_scenarios, steps_per_yr, n_years, er, vol, floor, multiplier, rf, cppi, ann_ret: False):
+    floor_value = floor * s0
+    dt = 1 / steps_per_yr
+    total_time_steps = int(n_years * steps_per_yr)
+
+    # Using refined method
+    dz = np.random.normal(loc=(1 + er) ** dt, scale=vol * np.sqrt(dt),
+                          size=(total_time_steps, n_scenarios))
+    # mu and sigma is annualized.
+    # The drift and rw terms require mu and sigma for the infinitesimally small time.
+    # Even better to use continuous comp ret.
+    # eg dt = 0.25 and mu is 10% per year. So drift term for 1Qtr needs mu for such qtr viz (1.1)**0.25
+    gbm_df = pd.DataFrame(dz)
+    gbm_df.loc[0] = 1.0
+    if cppi:
+        gbm_df = gbm_df.apply(lambda gbm_rets: gbm_rets - 1)
+        wealth_index = cipp_algo(gbm_df, multiplier=multiplier, floor=floor, reqd_strategies=[''], poi='', alpha='',
+                                 var_method='', rf=rf, s0=s0, gbm=True)
+    else:
+        wealth_index = drawdown(gbm_df, retrive_index=True, init_wealth=s0)
+    if ann_ret:
+        return get_ann_return(gbm_df)
+    return wealth_index
+
+
+def plot_gbm(s0=100):
     # plot
     app = dash.Dash()
     app.layout = html.Div(
@@ -628,25 +653,7 @@ def gbm(s0=100):
                    State('cppi', 'value')])
     def update_gbm(n_clicks, n_scenarios, steps_per_yr, n_years, er, vol, floor, multiplier, rf, cppi):
         floor_value = floor * s0
-        dt = 1 / steps_per_yr
-        total_time_steps = int(n_years * steps_per_yr)
-
-
-        # Using refined method
-        dz = np.random.normal(loc=(1 + er) ** dt, scale=vol * np.sqrt(dt),
-                              size=(total_time_steps, n_scenarios))
-        # mu and sigma is annualized.
-        # The drift and rw terms require mu and sigma for the infinitesimally small time.
-        # Even better to use continuous comp ret.
-        # eg dt = 0.25 and mu is 10% per year. So drift term for 1Qtr needs mu for such qtr viz (1.1)**0.25
-        gbm_df = pd.DataFrame(dz)
-        gbm_df.loc[0] = 1.0
-        if cppi:
-            gbm_df = gbm_df.apply(lambda gbm_rets: gbm_rets - 1)
-            wealth_index = cipp_algo(gbm_df, multiplier=multiplier, floor=floor, reqd_strategies=[''], poi='', alpha='',
-                                     var_method='', rf=rf, s0=s0, gbm=True)
-        else:
-            wealth_index = drawdown(gbm_df, retrive_index=True, init_wealth=s0)
+        wealth_index = gbm_stock(s0, n_scenarios, steps_per_yr, n_years, er, vol, floor, multiplier, rf, cppi)
         wealth_index.to_csv('tempfile.csv')
         terminal_wealth = wealth_index.iloc[-1]
         exp_wealth = np.mean(terminal_wealth)
