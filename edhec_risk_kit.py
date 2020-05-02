@@ -143,6 +143,33 @@ def risk_info(df, risk_plot: list, rf, alpha, var_method='cornish'):
     return info.sort_values(by=risk_plot, ascending=True).transpose()
 
 
+def terminal_risk_stats(fv, floor_factor, wealth_index):
+    floor_value = fv*floor_factor
+    if isinstance(wealth_index, pd.DataFrame):
+        terminal_wealth = wealth_index.iloc[-1]
+    else:
+        terminal_wealth = wealth_index # The terminal row
+    n_scenarios = terminal_wealth.shape[0]
+    exp_wealth = np.mean(terminal_wealth)
+    med_wealth = np.median(terminal_wealth)
+    failure_mask = np.less(terminal_wealth, floor_value)
+    n_breaches = failure_mask.sum()
+    p_breaches = n_breaches / n_scenarios
+    # exp_loss_post_breach = np.mean(terminal_wealth[failure_mask]) if n_breaches > 0 else 0.0
+    # exp_shortfall1 = floor_value - exp_loss_post_breach if n_breaches > 0 else 0.0
+    exp_shortfall = np.dot(floor_value - terminal_wealth, failure_mask) / n_breaches if n_breaches > 0 else 0.0
+    best_case = terminal_wealth.max()
+    worst_case = terminal_wealth.min()
+    return '''
+            Mean: ${:.2f}\n
+            Median: ${:.2f}\n
+            Violations: {} ({:.2%})\n
+            Exp Shortfall: ${:.2f}\n
+            Diff in worst and best case scenario: {}\n
+            Worst Case: {}
+            '''.format(exp_wealth, med_wealth, n_breaches, p_breaches, exp_shortfall, best_case - worst_case,
+                       worst_case)
+
 def ren_df(df, rev_name, exis_name='index'):
     return df.reset_index().rename(columns={exis_name: rev_name})
 
@@ -592,10 +619,10 @@ def plot(df, mode, reqd_strategies: list, risk_plot: list, poi, var_method, alph
         app.run_server()
 
 
-def gbm_stock(s0, n_scenarios, steps_per_yr, n_years, er, vol, floor, multiplier, rf, cppi, ann_ret: False):
+def gbm_stock(s0, n_scenarios, steps_per_yr, n_years, er, vol, floor, multiplier, rf, cppi, ret_series=False):
     floor_value = floor * s0
     dt = 1 / steps_per_yr
-    total_time_steps = int(n_years * steps_per_yr)
+    total_time_steps = int(n_years * steps_per_yr)+1
 
     # Using refined method
     dz = np.random.normal(loc=(1 + er) ** dt, scale=vol * np.sqrt(dt),
@@ -612,8 +639,9 @@ def gbm_stock(s0, n_scenarios, steps_per_yr, n_years, er, vol, floor, multiplier
                                  var_method='', rf=rf, s0=s0, gbm=True)
     else:
         wealth_index = drawdown(gbm_df, retrive_index=True, init_wealth=s0)
-    if ann_ret:
-        return get_ann_return(gbm_df)
+    if ret_series:
+        gbm_df.drop(0, inplace=True)
+        return gbm_df
     return wealth_index
 
 
@@ -652,30 +680,10 @@ def plot_gbm(s0=100):
                    State('i_rf', 'value'),
                    State('cppi', 'value')])
     def update_gbm(n_clicks, n_scenarios, steps_per_yr, n_years, er, vol, floor, multiplier, rf, cppi):
-        floor_value = floor * s0
         wealth_index = gbm_stock(s0, n_scenarios, steps_per_yr, n_years, er, vol, floor, multiplier, rf, cppi)
         wealth_index.to_csv('tempfile.csv')
-        terminal_wealth = wealth_index.iloc[-1]
-        exp_wealth = np.mean(terminal_wealth)
-        med_wealth = np.median(terminal_wealth)
-        failure_mask = np.less(terminal_wealth, floor_value)
-        n_breaches = failure_mask.sum()
-        p_breaches = n_breaches / n_scenarios
-        # exp_loss_post_breach = np.mean(terminal_wealth[failure_mask]) if n_breaches > 0 else 0.0
-        # exp_shortfall1 = floor_value - exp_loss_post_breach if n_breaches > 0 else 0.0
-        exp_shortfall = np.dot(floor_value - terminal_wealth, failure_mask) / n_breaches if n_breaches > 0 else 0.0
-        best_case = terminal_wealth.max()
-        worst_case = terminal_wealth.min()
-        return '''
-        Mean: ${:.2f}\n
-        Median: ${:.2f}\n
-        Violations: {} ({:.2%})\n
-        Exp Shortfall: ${:.2f}\n
-        Diff in worst and best case scenario: {}\n
-        Worst Case: {}
-        '''.format(exp_wealth, med_wealth, n_breaches, p_breaches, exp_shortfall, best_case - worst_case, worst_case)
-
-        # data point for plotting
+        result_stats = terminal_risk_stats(s0, floor, wealth_index)
+        return result_stats
 
     @app.callback(Output('gbm_plot', 'figure'),
                   [Input('gbm_stats', 'children'),
@@ -846,7 +854,7 @@ def conv_to_annualised_rate(sr):
     return np.expm1(sr)
 
 
-def get_rates_gbm(rf, n_years, steps_per_yr, n_scenarios, volatility, a, b, tenor=0, cr=0.05, fv=100, ann_ret=False):
+def get_rates_gbm(rf, n_years, steps_per_yr, n_scenarios, volatility, a, b):
     dt = 1 / steps_per_yr
     b = conv_to_short_rate(b)  # Since short rates are being modelled
     sr = conv_to_short_rate(rf)
@@ -877,11 +885,14 @@ def get_rates_gbm(rf, n_years, steps_per_yr, n_scenarios, volatility, a, b, teno
         zcb[steps] = price(n_years - steps * dt, rates[steps])
     rates_gbm_df = pd.DataFrame(data=conv_to_annualised_rate(rates), index=range(total_time_steps))
     zcb_gbm_df = pd.DataFrame(data=zcb, index=range(total_time_steps))
-    if ann_ret:
-        cb_df, mac_dur_df, bond_cf = get_bond_gbm(rates_gbm_df, n_years, steps_per_yr, tenor, cr, fv)
-        bond_ann_ret = get_bond_tr(cb_df, bond_cf, n_scenarios)
-        return bond_ann_ret, cb_df
-    return rates_gbm_df, zcb_gbm_df
+    zcb_rets = zcb_gbm_df.pct_change().dropna()
+    return rates_gbm_df, zcb_gbm_df, zcb_rets
+
+
+def get_btr(rates_gbm_df, n_years, steps_per_yr, tenor, cr, fv, n_scenarios):
+    cb_df, mac_dur_df, bond_cf = get_bond_gbm(rates_gbm_df, n_years, steps_per_yr, tenor, cr, fv)
+    bond_ann_ret = get_bond_tr(cb_df, bond_cf, n_scenarios)
+    return bond_ann_ret, cb_df
 
 
 def get_bond_gbm(rates_gbm_df: pd.DataFrame, n_years, steps_per_yr, tenor=0, cr=0.05, fv=100):
@@ -919,12 +930,12 @@ def get_bond_tr(cb_df, bond_cf, n_scenarios):
     concat_cf.loc[0] = 0
     concat_cf.loc[len(concat_cf.index)] = 0
     tcf_df = (cb_df + concat_cf)
-    tr_df = np.divide(tcf_df, cb_df.shift()) - 1
-    bond_ann_ret = get_ann_return(tr_df)
-    return bond_ann_ret
+    tr_df = (np.divide(tcf_df, cb_df.shift()) - 1).dropna()
+    # bond_ann_ret = get_ann_return(tr_df)
+    return tr_df
 
 
-def cir():
+def plot_cir():
     app = dash.Dash()
 
     def upd_label(out_id, inp_id):
@@ -986,7 +997,7 @@ def cir():
         def get_scatter_points(df: pd.DataFrame):
             return df.aggregate(lambda scenario: go.Scatter(x=scenario.index, y=scenario)).tolist()
         tenor = n_years
-        rates_gbm_df, zcb_gbm_df = get_rates_gbm(rf, n_years, steps_per_yr, n_scenarios, volatility, a, b)
+        rates_gbm_df, zcb_gbm_df, zcb_rets = get_rates_gbm(rf, n_years, steps_per_yr, n_scenarios, volatility, a, b)
         liabilities = zcb_gbm_df  # Assuming same liab as that of ZCB
         cb_df, mac_dur_df, bond_cf = get_bond_gbm(rates_gbm_df,n_years=n_years, steps_per_yr=steps_per_yr, tenor=tenor)
 

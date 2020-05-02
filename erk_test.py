@@ -34,7 +34,7 @@ import pandas as pd
 
 
 #gbm
-# erk.plot_gbm()
+erk.plot_gbm()
 # print(erk.get_bond_tr(0,0,0))
 # liab, mac_dur = erk.get_present_value(pd.Series(data=[100000, 100000], index=[10,12]), disc_rate=0.04)
 # b1, mac_dur1 = erk.get_bond_prices(10, 1, 0.04, 0.05, 1000)
@@ -43,39 +43,41 @@ import pandas as pd
 # liab = pd.Series(data=[100000, 100000], index=[10, 12])
 # erk.get_duration_matched_pf(liab, [10,20], [1,1], 0.04, [0.05, 0.05], [1000, 1000], 130000, fr_change_sim=True)
 
-bond_ret_10, cb_10 = erk.get_rates_gbm(rf=0.03,
-                  n_years=10,
-                  steps_per_yr=12,
-                  n_scenarios=10,
-                  volatility=0.15,
-                  a=0.5,
-                  b=0.03,
-                  tenor=20,
-                  cr=0.05,
-                  fv=100,
-                  ann_ret=True)
-bond_ret_20, cb_20 = erk.get_rates_gbm(rf=0.03,
-                  n_years=10,
-                  steps_per_yr=12,
-                  n_scenarios=10,
-                  volatility=0.15,
-                  a=0.5,
-                  b=0.03,
-                  tenor=20,
-                  cr=0.05,
-                  fv=100,
-                  ann_ret=True)
-bond_pf = 0.6*bond_ret_10 + 0.4*bond_ret_20
-st_ret = erk.gbm_stock(s0=100,
-                       n_scenarios=10,
-                       steps_per_yr=12,
-                       n_years=10,
-                       er=0.07,
-                       vol=0.15,
-                       floor=0.8,
-                       multiplier=3,
-                       rf=0.03,
-                       cppi=True,
-                       ann_ret=True)
-pf = 0.6*st_ret + 0.4*bond_pf
-print()
+# rates_gbm, zcb_gbm, zcb_rets = erk.get_rates_gbm(rf=0.03,
+#                                        n_years=10,
+#                                        steps_per_yr=12,
+#                                        n_scenarios=10,
+#                                        volatility=0.05,
+#                                        a=0.5,
+#                                        b=0.03)
+#
+# bond_ret_10, cb_10 = erk.get_btr(rates_gbm_df=rates_gbm,
+#                                  n_years=10,
+#                                  steps_per_yr=12,
+#                                  tenor=10,
+#                                  cr=0.05,
+#                                  fv=100,
+#                                  n_scenarios=10)
+# bond_ret_30, cb_30 = erk.get_btr(rates_gbm_df=rates_gbm,
+#                                  n_years=10,
+#                                  steps_per_yr=12,
+#                                  tenor=30,
+#                                  cr=0.05,
+#                                  fv=100,
+#                                  n_scenarios=10)
+# bond_pf_ret = 0.6*bond_ret_10 + 0.4*bond_ret_30
+# mean_bond_pf_ret = pd.DataFrame(bond_pf_ret.mean(axis=1))
+# summary_stats_bond_pf = erk.risk_info(mean_bond_pf_ret, ['ann_ret'], rf=0.05, alpha=0.05)
+# st_ret = erk.gbm_stock(s0=100,
+#                        n_scenarios=10,
+#                        steps_per_yr=12,
+#                        n_years=10,
+#                        er=0.07,
+#                        vol=0.15,
+#                        floor=0.8,
+#                        multiplier=3,
+#                        rf=0.03,
+#                        cppi=True,
+#                        ret_series=True)
+# # pf = 0.6*st_ret + 0.4*bond_pf
+# print()
