@@ -770,8 +770,14 @@ def get_bond_prices(n_years, tenor, steps_per_year, disc_rate, cr=0.03, fv=100):
         disc_rate = pd.DataFrame(data=np.repeat(disc_rate, total_time_steps).reshape(total_time_steps,1))
         return get_bond_prices(n_years,tenor,steps_per_year, disc_rate, cr, fv)
 
+
 def get_funding_ratio(pv_liabilities, pv_assets):
     return np.divide(pv_assets, pv_liabilities)
+
+
+def get_terminal_wealth(rets):
+    return np.exp(np.log1p(rets).sum())
+
 
 def get_duration_matched_pf(liabilities: pd.Series, n_years: list, steps_per_year: list, disc_rate, cr: list, fv: list, av, fr_change_sim: True):
     pv_liabilities, mac_dur_liabilities = get_present_value(liabilities, disc_rate)
@@ -1065,6 +1071,28 @@ def plot_cir():
         return fig, tfr_cash_distplot
 
     app.run_server()
+
+
+def distplot_terminal_paths(floor_factor,**kwargs):
+    app = dash.Dash()
+    terminal_paths = []
+    pf_type = []
+    stats=[]
+    for key, value in kwargs.items():
+        pf_type.append(key)
+        terminal_paths.append(value.tolist())
+        stats.append(terminal_risk_stats(fv=1, floor_factor=floor_factor, wealth_index=value))
+    floor = [dict(type='line', xref='x1', yref='paper', y0=0, y1=1, x0=floor_factor, x1=floor_factor, name='floor',
+                    line=dict(dash='dashdot', width=5))]
+    fig = ff.create_distplot(hist_data=terminal_paths, group_labels=pf_type, show_hist=False)
+    fig.update_layout(shapes=floor)
+    app.layout = html.Div([html.Div([dcc.Graph(id='terminal_dist_plot', figure=fig)]),
+                           html.Div([dcc.Markdown(id='terminal_stats1', children=stats[0])], style={'fontsize': '40em', 'display': 'inline'}),
+                           html.Div([dcc.Markdown(id='terminal_stats2', children=stats[1])], style={'fontsize': '40em', 'float':'right', 'display': 'inline'}),
+                           ])
+    app.run_server()
+
+
 
 
 
