@@ -143,7 +143,7 @@ def risk_info(df, risk_plot: list, rf, alpha, var_method='cornish'):
     return info.sort_values(by=risk_plot, ascending=True).transpose()
 
 
-def terminal_risk_stats(fv, floor_factor, wealth_index):
+def terminal_risk_stats(fv, floor_factor, wealth_index, aslst=False, strategy=None):
     floor_value = fv*floor_factor
     if isinstance(wealth_index, pd.DataFrame):
         terminal_wealth = wealth_index.iloc[-1]
@@ -152,6 +152,7 @@ def terminal_risk_stats(fv, floor_factor, wealth_index):
     n_scenarios = terminal_wealth.shape[0]
     exp_wealth = np.mean(terminal_wealth)
     med_wealth = np.median(terminal_wealth)
+    vol_wealth = np.std(terminal_wealth)
     failure_mask = np.less(terminal_wealth, floor_value)
     n_breaches = failure_mask.sum()
     p_breaches = n_breaches / n_scenarios
@@ -160,15 +161,20 @@ def terminal_risk_stats(fv, floor_factor, wealth_index):
     exp_shortfall = np.dot(floor_value - terminal_wealth, failure_mask) / n_breaches if n_breaches > 0 else 0.0
     best_case = terminal_wealth.max()
     worst_case = terminal_wealth.min()
-    return '''
-            Mean: ${:.2f}\n
-            Median: ${:.2f}\n
-            Violations: {} ({:.2%})\n
-            Exp Shortfall: ${:.2f}\n
-            Diff in worst and best case scenario: {}\n
-            Worst Case: {}
-            '''.format(exp_wealth, med_wealth, n_breaches, p_breaches, exp_shortfall, best_case - worst_case,
-                       worst_case)
+    if aslst:
+        stats = [strategy, exp_wealth, vol_wealth, med_wealth, n_breaches, p_breaches, exp_shortfall]
+        return stats
+    else:
+        return '''
+                Mean: ${:.2f}\n
+                Median: ${:.2f}\n
+                Violations: {} ({:.2%})\n
+                Exp Shortfall: ${:.2f}\n
+                Diff in worst and best case scenario: {}\n
+                Worst Case: {}
+                '''.format(exp_wealth, med_wealth, n_breaches, p_breaches, exp_shortfall, best_case - worst_case,
+                           worst_case)
+
 
 def ren_df(df, rev_name, exis_name='index'):
     return df.reset_index().rename(columns={exis_name: rev_name})
@@ -1073,22 +1079,69 @@ def plot_cir():
     app.run_server()
 
 
+def bt_mix(r1: pd.DataFrame, r2: pd.DataFrame, allocator, **kwargs):
+    if not r1.shape == r2.shape:
+        raise ValueError("Returns need to be of same shape")
+    wt_r1 = allocator(r1, r2, **kwargs)
+    if not wt_r1.shape == r1.shape:
+        raise ValueError("Use a compatible allocator")
+    return wt_r1*r1 + (1-wt_r1)*r2
+
+
+def fixed_mix_allocator(r1: pd.DataFrame, r2: pd.DataFrame, wt_r1):
+        return pd.DataFrame(data=wt_r1, index=r1.index, columns=r1.columns)
+
+
+def glide_path_allocator(r1: pd.DataFrame, r2: pd.DataFrame, wt_start=0.8, wt_end=0.2):
+    n_points = r1.shape[0]
+    n_scenarios = r1.shape[1]
+    wt_r1 = pd.Series(np.linspace(wt_start, wt_end, n_points))
+    wt_r1 = pd.concat([wt_r1]*n_scenarios, axis=1)
+    return wt_r1
+
+
+def floor_allocator(r1: pd.DataFrame, r2: pd.DataFrame, floor, zcb_prices: pd.DataFrame, m=3, max_dd_mode=False):
+    zcb_prices = zcb_prices.drop(index=0).reindex()
+    if not r1.shape == r2.shape:
+        raise ValueError("Non-Compatible rets dataframe")
+    wt_r1 = pd.DataFrame().reindex_like(r1)
+    total_time_steps, n_scenarios = r1.shape
+    pf_value = np.repeat(1, n_scenarios)
+    floor_value = np.repeat(1, n_scenarios)
+    peak_value = np.repeat(1, n_scenarios)
+    for step in range(0, total_time_steps):
+        if max_dd_mode:
+            peak_value = np.maximum(peak_value, pf_value)
+            floor_value = floor*peak_value
+        else:
+            floor_value = floor*zcb_prices.iloc[step]
+        cushion = (pf_value - floor_value) / pf_value
+        wt1 = (cushion*m).clip(0,1)
+        pf_ret = wt1*r1.iloc[step] + (1-wt1)*r2.iloc[step]
+        pf_value = (1+pf_ret)*pf_value
+        wt_r1.iloc[step] = wt1
+    return wt_r1
+
+
 def distplot_terminal_paths(floor_factor,**kwargs):
     app = dash.Dash()
     terminal_paths = []
     pf_type = []
-    stats=[]
+    stats = []
     for key, value in kwargs.items():
         pf_type.append(key)
         terminal_paths.append(value.tolist())
-        stats.append(terminal_risk_stats(fv=1, floor_factor=floor_factor, wealth_index=value))
+        stats.append(terminal_risk_stats(fv=1, floor_factor=floor_factor, wealth_index=value, aslst=True, strategy=key))
+    stats = pd.DataFrame(data=stats, columns=["strategy", 'Exp_wealth', "Exp_Volatility", "Med_Wealth", "#_violations", "p_violations", "CVaR"])
     floor = [dict(type='line', xref='x1', yref='paper', y0=0, y1=1, x0=floor_factor, x1=floor_factor, name='floor',
                     line=dict(dash='dashdot', width=5))]
     fig = ff.create_distplot(hist_data=terminal_paths, group_labels=pf_type, show_hist=False)
     fig.update_layout(shapes=floor)
     app.layout = html.Div([html.Div([dcc.Graph(id='terminal_dist_plot', figure=fig)]),
-                           html.Div([dcc.Markdown(id='terminal_stats1', children=stats[0])], style={'fontsize': '40em', 'display': 'inline'}),
-                           html.Div([dcc.Markdown(id='terminal_stats2', children=stats[1])], style={'fontsize': '40em', 'float':'right', 'display': 'inline'}),
+                           html.Div([dt.DataTable(id='risk-stats',
+                                                  columns=[{'name': col,
+                                                            'id': col} for col in stats.columns],
+                                                  data=stats.to_dict('records'))])
                            ])
     app.run_server()
 

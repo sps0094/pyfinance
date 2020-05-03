@@ -47,7 +47,7 @@ rates_gbm, zcb_gbm, zcb_rets = erk.get_rates_gbm(rf=0.03,
                                        n_years=10,
                                        steps_per_yr=12,
                                        n_scenarios=100,
-                                       volatility=0.05,
+                                       volatility=0.02,
                                        a=0.5,
                                        b=0.03)
 
@@ -65,9 +65,6 @@ bond_ret_30, cb_30 = erk.get_btr(rates_gbm_df=rates_gbm,
                                  cr=0.05,
                                  fv=100,
                                  n_scenarios=100)
-bond_pf_ret = 0.6*bond_ret_10 + 0.4*bond_ret_30
-mean_bond_pf_ret = pd.DataFrame(bond_pf_ret.mean(axis=1))
-summary_stats_bond_pf = erk.risk_info(mean_bond_pf_ret, ['ann_ret'], rf=0.05, alpha=0.05)
 st_ret = erk.gbm_stock(s0=100,
                        n_scenarios=100,
                        steps_per_yr=12,
@@ -79,7 +76,31 @@ st_ret = erk.gbm_stock(s0=100,
                        rf=0.03,
                        cppi=True,
                        ret_series=True)
-pf = 0.6*st_ret + 0.4*bond_pf_ret
-term_psp = erk.get_terminal_wealth(pf)
-term_lhp = erk.get_terminal_wealth(bond_pf_ret)
-erk.distplot_terminal_paths(floor_factor=0.8 ,psp=term_psp, lhp=term_lhp)
+#cash return - assets with lowest possible duration
+cash_rets = (1+0.02)**(1/12) - 1
+cash_rets_df = pd.DataFrame().reindex_like(st_ret)
+cash_rets_df.loc[:] = cash_rets
+
+lhp_bonds = erk.bt_mix(bond_ret_10, bond_ret_30, erk.fixed_mix_allocator, wt_r1=0.6)
+psp_7030 = erk.bt_mix(st_ret, lhp_bonds, erk.fixed_mix_allocator, wt_r1=0.7)
+psp_floor = erk.bt_mix(st_ret, lhp_bonds, erk.floor_allocator, floor=0.75, zcb_prices=zcb_gbm, m=3)
+psp_maxdd = erk.bt_mix(st_ret, cash_rets_df, erk.floor_allocator, floor=0.75, zcb_prices=zcb_gbm, m=3, max_dd_mode=True)
+psp_7030z = erk.bt_mix(st_ret, zcb_rets, erk.fixed_mix_allocator, wt_r1=0.7)
+g_8020 = erk.bt_mix(st_ret, lhp_bonds, erk.glide_path_allocator, wt_start=0.8, wt_end=0.2)
+psp_eq = st_ret
+
+strategies = [lhp_bonds, psp_7030, psp_7030z, psp_floor, psp_maxdd, psp_eq, g_8020]
+all_str_stats = pd.DataFrame()
+for strategy in strategies:
+    stats = erk.risk_info(strategy, risk_plot=['Drawdown'], rf=0.05, alpha=0.05).mean(axis=1)
+    all_str_stats = all_str_stats.append(stats.transpose(), ignore_index=True)
+
+t_lhp_bonds = erk.get_terminal_wealth(lhp_bonds)
+t_psp_7030 = erk.get_terminal_wealth(psp_7030)
+t_psp_floor = erk.get_terminal_wealth(psp_floor)
+t_psp_maxdd = erk.get_terminal_wealth(psp_maxdd)
+t_psp_7030z = erk.get_terminal_wealth(psp_7030z)
+t_g_8020 = erk.get_terminal_wealth(g_8020)
+t_psp_eq = erk.get_terminal_wealth(psp_eq)
+
+erk.distplot_terminal_paths(floor_factor=0.75, psp_7030=t_psp_7030, psp_eq=t_psp_eq, g_8020=t_g_8020, psp_7030z=t_psp_7030z, psp_floor=t_psp_floor, psp_maxdd=t_psp_maxdd)
