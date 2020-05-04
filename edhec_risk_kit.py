@@ -907,6 +907,11 @@ def get_btr(rates_gbm_df, n_years, steps_per_yr, tenor, cr, fv, n_scenarios):
     return bond_ann_ret, cb_df
 
 
+def reshape_disc_rate(n_years, steps_per_year, n_scenarios, disc_rate):
+    rates_df = pd.DataFrame(data=disc_rate, index=range(0, (n_years*steps_per_year+1)), columns=range(0, n_scenarios))
+    return rates_df
+
+
 def get_bond_gbm(rates_gbm_df: pd.DataFrame, n_years, steps_per_yr, tenor=0, cr=0.05, fv=100):
     bond_cf = 0
     dt = 1/steps_per_yr
