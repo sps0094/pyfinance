@@ -9,7 +9,7 @@ import plotly.graph_objs as go
 import plotly.figure_factory as ff
 import numpy as np
 import scipy.stats as sp
-from scipy.optimize import Bounds, minimize
+from scipy.optimize import Bounds, minimize, minimize_scalar
 from plotly.subplots import make_subplots
 from dash.dependencies import Input, Output, State
 import math
@@ -785,28 +785,83 @@ def get_terminal_wealth(rets):
     return np.exp(np.log1p(rets).sum())
 
 
-def get_duration_matched_pf(liabilities: pd.Series, n_years: list, steps_per_year: list, disc_rate, cr: list, fv: list, av, fr_change_sim: True):
+def get_optimal_wts(md_liab, ldb, sdb, av, disc_rate):
+    x0 = np.repeat(0.5, 2)
+    bounds = Bounds(lb=0.00, ub=1.00)
+
+    def core_check_algo(wts, md_liab, ldb, sdb, av, disc_rate):
+        wt_l = wts[0]
+        alloc_long_dur_bond = av * wt_l
+        alloc_short_dur_bond = av * (1 - wt_l)
+        n_long_dur_bond_match = alloc_long_dur_bond / ldb[0]
+        n_short_dur_bond_match = alloc_short_dur_bond / sdb[0]
+        n_long_bond_full = av / ldb[0]
+        n_short_bond_full = av / sdb[0]
+        dur_matched_bond_cf = pd.concat([ldb[2] * n_long_dur_bond_match, sdb[2] * n_short_dur_bond_match])
+        long_bond_cf_full = ldb[2] * n_long_bond_full
+        short_bond_cf_full = sdb[2] * n_short_bond_full
+        pv_pf, mac_dur_pf = get_present_value(dur_matched_bond_cf, disc_rate)
+        pv_pf = pv_pf[0]
+        mac_dur_pf = mac_dur_pf[0]
+        tts_ldb = len(ldb[2].index)
+        tts_sdb = len(sdb[2].index)
+        dur_ann_factor_pf = np.divide(1, ldb[3] if tts_ldb > tts_sdb else sdb[3])
+        return mac_dur_pf * dur_ann_factor_pf
+
+    def check_dur_match(wts, md_liab, ldb, sdb, av, disc_rate):
+        mac_dur_pf = core_check_algo(wts, md_liab, ldb, sdb, av, disc_rate)
+        return mac_dur_pf - md_liab
+
+    sum_wts_to_1 = {
+        'type': 'eq',
+        'fun': lambda wts: np.sum(wts) - 1
+    }
+
+    is_diff_zero = {
+        'type': 'eq',
+        'args': (md_liab, ldb, sdb, av, disc_rate),
+        'fun': check_dur_match
+    }
+
+    result = minimize(fun=check_dur_match,
+                      args=(md_liab, ldb, sdb, av, disc_rate),
+                      x0=x0,
+                      method='SLSQP',
+                      bounds=bounds,
+                      constraints=[sum_wts_to_1, is_diff_zero],
+                      options={'disp': False}
+                      )
+    wts = result.x
+    return wts
+
+
+
+
+# # NEED TO ADAPT FOR BONDS WITH VARYING COUPON PERIODS
+def get_duration_matched_pf(liabilities: pd.Series, n_years: list, steps_per_year: list, disc_rate, cr: list, fv: list, av, fr_change_sim=False):
     pv_liabilities, mac_dur_liabilities = get_present_value(liabilities, disc_rate)
     pv_bond_1, mac_dur_bond_1, bond_cf_1 = get_bond_prices(n_years[0], n_years[0], steps_per_year[0], disc_rate, cr[0], fv[0])
     pv_bond_2, mac_dur_bond_2, bond_cf_2 = get_bond_prices(n_years[1], n_years[1], steps_per_year[1], disc_rate, cr[1], fv[1])
     bond_cf_1.index += 1
     bond_cf_2.index += 1
-    mac_dur_bond_1 = mac_dur_bond_1.loc[0]
-    mac_dur_bond_2 = mac_dur_bond_2.loc[0]
+    mac_dur_bond_1 = mac_dur_bond_1.loc[0] / steps_per_year[0]
+    mac_dur_bond_2 = mac_dur_bond_2.loc[0] / steps_per_year[1]
     mac_dur_liabilities = mac_dur_liabilities.loc[0]
     pv_bond_1 = pv_bond_1[0]
     pv_bond_2 = pv_bond_2[0]
     pv_liabilities = pv_liabilities[0]
     if mac_dur_bond_1 > mac_dur_bond_2:
-        long_dur_bond = [pv_bond_1, mac_dur_bond_1, bond_cf_1]
-        short_dur_bond = [pv_bond_2, mac_dur_bond_2, bond_cf_2]
+        long_dur_bond = [pv_bond_1, mac_dur_bond_1, bond_cf_1, steps_per_year[0]]
+        short_dur_bond = [pv_bond_2, mac_dur_bond_2, bond_cf_2, steps_per_year[1]]
     else:
-        long_dur_bond = [pv_bond_2, mac_dur_bond_2, bond_cf_2]
-        short_dur_bond = [pv_bond_1, mac_dur_bond_1, bond_cf_1]
+        long_dur_bond = [pv_bond_2, mac_dur_bond_2, bond_cf_2, steps_per_year[1]]
+        short_dur_bond = [pv_bond_1, mac_dur_bond_1, bond_cf_1, steps_per_year[0]]
 
     #computes duration match wts
-    wt_short_dur_bond = (long_dur_bond[1] - mac_dur_liabilities)/(long_dur_bond[1] - short_dur_bond[1])
-    wt_long_dur_bond = 1 - wt_short_dur_bond
+
+    wt_array = get_optimal_wts(mac_dur_liabilities, long_dur_bond, short_dur_bond, av, disc_rate)
+    wt_long_dur_bond = wt_array[0]
+    wt_short_dur_bond = wt_array[1]
     alloc_long_dur_bond = av*wt_long_dur_bond
     alloc_short_dur_bond = av*wt_short_dur_bond
     n_long_dur_bond_match = alloc_long_dur_bond / long_dur_bond[0]
@@ -847,6 +902,7 @@ def get_duration_matched_pf(liabilities: pd.Series, n_years: list, steps_per_yea
                            name=col) for col in fr.columns]
         app.layout = html.Div([dcc.Graph(id='cfr', figure=dict(data=data))])
         app.run_server()
+    return [wt_long_dur_bond, wt_short_dur_bond, mac_dur_pf, mac_dur_liabilities]
 
 
 def conv_to_short_rate(r):
@@ -903,8 +959,9 @@ def get_rates_gbm(rf, n_years, steps_per_yr, n_scenarios, volatility, a, b):
 
 def get_btr(rates_gbm_df, n_years, steps_per_yr, tenor, cr, fv, n_scenarios):
     cb_df, mac_dur_df, bond_cf = get_bond_gbm(rates_gbm_df, n_years, steps_per_yr, tenor, cr, fv)
+    mac_dur_df = mac_dur_df / steps_per_yr
     bond_ann_ret = get_bond_tr(cb_df, bond_cf, n_scenarios)
-    return bond_ann_ret, cb_df
+    return bond_ann_ret, cb_df, mac_dur_df
 
 
 def reshape_disc_rate(n_years, steps_per_year, n_scenarios, disc_rate):
