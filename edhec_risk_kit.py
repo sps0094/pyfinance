@@ -724,7 +724,7 @@ def plot_gbm(s0=100):
         app.run_server()
 
 
-def get_macaulay_duration(pvf):
+def get_macaulay_duration(pvf): # Nota annualized. Make sure to annualize
     mac_dur = pvf.apply(lambda pvf: np.average(pvf.index+1, weights=pvf))
     return mac_dur
 
@@ -785,28 +785,26 @@ def get_terminal_wealth(rets):
     return np.exp(np.log1p(rets).sum())
 
 
-def get_optimal_wts(md_liab, ldb, sdb, av, disc_rate):
+def get_optimal_wts(md_liab, ldb, sdb, av, disc_rate, dt):
     x0 = np.repeat(0.5, 2)
     bounds = Bounds(lb=0.00, ub=1.00)
 
-    def core_check_algo(wts, md_liab, ldb, sdb, av, disc_rate):
+    def core_check_algo(wts, ldb, sdb, av, disc_rate, dt):
         wt_l = wts[0]
         alloc_long_dur_bond = av * wt_l
         alloc_short_dur_bond = av * (1 - wt_l)
         n_long_dur_bond_match = alloc_long_dur_bond / ldb[0]
         n_short_dur_bond_match = alloc_short_dur_bond / sdb[0]
-        n_long_bond_full = av / ldb[0]
-        n_short_bond_full = av / sdb[0]
-        dur_matched_bond_cf = pd.concat([ldb[2] * n_long_dur_bond_match, sdb[2] * n_short_dur_bond_match])
-        long_bond_cf_full = ldb[2] * n_long_bond_full
-        short_bond_cf_full = sdb[2] * n_short_bond_full
+        dur_matched_bond_cf = pd.DataFrame(data=pd.concat([ldb[2] * n_long_dur_bond_match, sdb[2] * n_short_dur_bond_match]), columns=['cf'])
+        dur_matched_bond_cf = dur_matched_bond_cf.groupby(dur_matched_bond_cf.index)['cf'].sum()
+        dur_matched_bond_cf.index += 1
+        disc_rate = disc_rate * dt
         pv_pf, mac_dur_pf = get_present_value(dur_matched_bond_cf, disc_rate)
-        pv_pf = pv_pf[0]
         mac_dur_pf = mac_dur_pf[0]
-        return mac_dur_pf
+        return mac_dur_pf * dt
 
-    def check_dur_match(wts, md_liab, ldb, sdb, av, disc_rate):
-        mac_dur_pf = core_check_algo(wts, md_liab, ldb, sdb, av, disc_rate)
+    def check_dur_match(wts, md_liab, ldb, sdb, av, disc_rate, dt):
+        mac_dur_pf = core_check_algo(wts, ldb, sdb, av, disc_rate, dt)
         return mac_dur_pf - md_liab
 
     sum_wts_to_1 = {
@@ -816,12 +814,12 @@ def get_optimal_wts(md_liab, ldb, sdb, av, disc_rate):
 
     is_diff_zero = {
         'type': 'eq',
-        'args': (md_liab, ldb, sdb, av, disc_rate),
+        'args': (md_liab, ldb, sdb, av, disc_rate, dt),
         'fun': check_dur_match
     }
 
     result = minimize(fun=check_dur_match,
-                      args=(md_liab, ldb, sdb, av, disc_rate),
+                      args=(md_liab, ldb, sdb, av, disc_rate, dt),
                       x0=x0,
                       method='SLSQP',
                       bounds=bounds,
@@ -837,10 +835,10 @@ def get_duration_matched_pf(liabilities: pd.Series, n_years: list, steps_per_yea
     pv_liabilities, mac_dur_liabilities = get_present_value(liabilities, disc_rate)
     pv_bond_1, mac_dur_bond_1, bond_cf_1 = get_bond_prices(n_years[0], n_years[0], steps_per_year[0], disc_rate, cr[0], fv[0])
     pv_bond_2, mac_dur_bond_2, bond_cf_2 = get_bond_prices(n_years[1], n_years[1], steps_per_year[1], disc_rate, cr[1], fv[1])
-    bond_cf_1.index += 1
-    bond_cf_2.index += 1
-    mac_dur_bond_1 = mac_dur_bond_1.loc[0]
-    mac_dur_bond_2 = mac_dur_bond_2.loc[0]
+    # bond_cf_1.index += 1
+    # bond_cf_2.index += 1
+    mac_dur_bond_1 = mac_dur_bond_1.loc[0] / steps_per_year[0]
+    mac_dur_bond_2 = mac_dur_bond_2.loc[0] / steps_per_year[1]
     mac_dur_liabilities = mac_dur_liabilities.loc[0]
     pv_bond_1 = pv_bond_1[0]
     pv_bond_2 = pv_bond_2[0]
@@ -851,26 +849,33 @@ def get_duration_matched_pf(liabilities: pd.Series, n_years: list, steps_per_yea
     else:
         long_dur_bond = [pv_bond_2, mac_dur_bond_2, bond_cf_2, steps_per_year[1]]
         short_dur_bond = [pv_bond_1, mac_dur_bond_1, bond_cf_1, steps_per_year[0]]
+    tts_for_pf = steps_per_year[0] if len(bond_cf_1.index) > len(bond_cf_2.index) else steps_per_year[1] # To adj disc_rate periodicity for dur_match pf
+    dt = 1 / tts_for_pf
 
     #computes duration match wts
 
-    wt_array = get_optimal_wts(mac_dur_liabilities, long_dur_bond, short_dur_bond, av, disc_rate)
+    wt_array = get_optimal_wts(mac_dur_liabilities, long_dur_bond, short_dur_bond, av, disc_rate, dt)
     wt_long_dur_bond = wt_array[0]
     wt_short_dur_bond = wt_array[1]
     # wt_short_dur_bond = (long_dur_bond[1] - mac_dur_liabilities) / (long_dur_bond[1] - short_dur_bond[1])
     # wt_long_dur_bond = 1-wt_short_dur_bond
+    # wt_long_dur_bond = 1.0
+    # wt_short_dur_bond = 1-wt_long_dur_bond
     alloc_long_dur_bond = av*wt_long_dur_bond
     alloc_short_dur_bond = av*wt_short_dur_bond
     n_long_dur_bond_match = alloc_long_dur_bond / long_dur_bond[0]
     n_short_dur_bond_match = alloc_short_dur_bond / short_dur_bond[0]
     n_long_bond_full = av/long_dur_bond[0]
     n_short_bond_full = av/short_dur_bond[0]
-    dur_matched_bond_cf = pd.concat([long_dur_bond[2]*n_long_dur_bond_match, short_dur_bond[2]*n_short_dur_bond_match])
+    dur_matched_bond_cf = pd.DataFrame(data=pd.concat([long_dur_bond[2]*n_long_dur_bond_match, short_dur_bond[2]*n_short_dur_bond_match]), columns=['cf'])
+    dur_matched_bond_cf = dur_matched_bond_cf.groupby(dur_matched_bond_cf.index)['cf'].sum()
+    dur_matched_bond_cf.index += 1
     long_bond_cf_full = long_dur_bond[2]*n_long_bond_full
     short_bond_cf_full = short_dur_bond[2]*n_short_bond_full
+    disc_rate = disc_rate * dt
     pv_pf, mac_dur_pf = get_present_value(dur_matched_bond_cf, disc_rate)
     pv_pf = pv_pf[0]
-    mac_dur_pf = mac_dur_pf[0]
+    mac_dur_pf = mac_dur_pf[0] * dt
     if fr_change_sim:
         disc_rates = np.linspace(0, 0.1, 50)
         fr_long = []
@@ -899,7 +904,7 @@ def get_duration_matched_pf(liabilities: pd.Series, n_years: list, steps_per_yea
                            name=col) for col in fr.columns]
         app.layout = html.Div([dcc.Graph(id='cfr', figure=dict(data=data))])
         app.run_server()
-    return [wt_long_dur_bond, wt_short_dur_bond, mac_dur_pf, mac_dur_liabilities]
+    return [wt_long_dur_bond, wt_short_dur_bond, mac_dur_pf, mac_dur_liabilities, long_dur_bond[1], short_dur_bond[1]]
 
 
 def conv_to_short_rate(r):
