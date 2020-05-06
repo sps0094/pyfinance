@@ -852,7 +852,7 @@ def get_duration_matched_pf(liabilities: pd.Series, n_years: list, steps_per_yea
     tts_for_pf = steps_per_year[0] if len(bond_cf_1.index) > len(bond_cf_2.index) else steps_per_year[1] # To adj disc_rate periodicity for dur_match pf
     dt = 1 / tts_for_pf
 
-    #computes duration match wts
+    #computes duration match wtss
 
     wt_array = get_optimal_wts(mac_dur_liabilities, long_dur_bond, short_dur_bond, av, disc_rate, dt)
     wt_long_dur_bond = wt_array[0]
