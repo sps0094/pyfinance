@@ -803,10 +803,7 @@ def get_optimal_wts(md_liab, ldb, sdb, av, disc_rate):
         pv_pf, mac_dur_pf = get_present_value(dur_matched_bond_cf, disc_rate)
         pv_pf = pv_pf[0]
         mac_dur_pf = mac_dur_pf[0]
-        tts_ldb = len(ldb[2].index)
-        tts_sdb = len(sdb[2].index)
-        dur_ann_factor_pf = np.divide(1, ldb[3] if tts_ldb > tts_sdb else sdb[3])
-        return mac_dur_pf * dur_ann_factor_pf
+        return mac_dur_pf
 
     def check_dur_match(wts, md_liab, ldb, sdb, av, disc_rate):
         mac_dur_pf = core_check_algo(wts, md_liab, ldb, sdb, av, disc_rate)
@@ -835,8 +832,6 @@ def get_optimal_wts(md_liab, ldb, sdb, av, disc_rate):
     return wts
 
 
-
-
 # # NEED TO ADAPT FOR BONDS WITH VARYING COUPON PERIODS
 def get_duration_matched_pf(liabilities: pd.Series, n_years: list, steps_per_year: list, disc_rate, cr: list, fv: list, av, fr_change_sim=False):
     pv_liabilities, mac_dur_liabilities = get_present_value(liabilities, disc_rate)
@@ -844,8 +839,8 @@ def get_duration_matched_pf(liabilities: pd.Series, n_years: list, steps_per_yea
     pv_bond_2, mac_dur_bond_2, bond_cf_2 = get_bond_prices(n_years[1], n_years[1], steps_per_year[1], disc_rate, cr[1], fv[1])
     bond_cf_1.index += 1
     bond_cf_2.index += 1
-    mac_dur_bond_1 = mac_dur_bond_1.loc[0] / steps_per_year[0]
-    mac_dur_bond_2 = mac_dur_bond_2.loc[0] / steps_per_year[1]
+    mac_dur_bond_1 = mac_dur_bond_1.loc[0]
+    mac_dur_bond_2 = mac_dur_bond_2.loc[0]
     mac_dur_liabilities = mac_dur_liabilities.loc[0]
     pv_bond_1 = pv_bond_1[0]
     pv_bond_2 = pv_bond_2[0]
@@ -862,6 +857,8 @@ def get_duration_matched_pf(liabilities: pd.Series, n_years: list, steps_per_yea
     wt_array = get_optimal_wts(mac_dur_liabilities, long_dur_bond, short_dur_bond, av, disc_rate)
     wt_long_dur_bond = wt_array[0]
     wt_short_dur_bond = wt_array[1]
+    # wt_short_dur_bond = (long_dur_bond[1] - mac_dur_liabilities) / (long_dur_bond[1] - short_dur_bond[1])
+    # wt_long_dur_bond = 1-wt_short_dur_bond
     alloc_long_dur_bond = av*wt_long_dur_bond
     alloc_short_dur_bond = av*wt_short_dur_bond
     n_long_dur_bond_match = alloc_long_dur_bond / long_dur_bond[0]

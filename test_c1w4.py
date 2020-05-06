@@ -1,12 +1,12 @@
 import edhec_risk_kit as erk
 import pandas as pd
 
-# rates_15 = erk.reshape_disc_rate(15, 2, 1, 0.05)
-# b1, cb1, d1 = erk.get_btr(rates_gbm_df=rates_15,
-#                                  n_years=15,
+# rates_16 = erk.reshape_disc_rate(16, 2, 1, 0.0275)
+# b1, cb1, d1 = erk.get_btr(rates_gbm_df=rates_16,
+#                                  n_years=16,
 #                                  steps_per_yr=2,
-#                                  tenor=15,
-#                                  cr=0.05,
+#                                  tenor=16,
+#                                  cr=0.03,
 #                                  fv=1000,
 #                                  n_scenarios=1)
 #
