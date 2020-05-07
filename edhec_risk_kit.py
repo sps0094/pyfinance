@@ -29,10 +29,10 @@ def get_df(filename, start_period, end_period, format, reqd_strategies, mode='re
     """
 
     :param filename:
-    :param start_period:
-    :param end_period:
+    :param start_period:None if NA
+    :param end_period:None if NA
     :param format:
-    :param reqd_strategies:
+    :param reqd_strategies: None if NA
     :param mode: return or nos or size
     :return:
     """
@@ -41,9 +41,13 @@ def get_df(filename, start_period, end_period, format, reqd_strategies, mode='re
         df = df / 100
     df.dropna(how='all', inplace=True, axis=1)
     df.columns = df.columns.str.strip()
-    df = df[reqd_strategies]
+    if reqd_strategies is not None:
+        df = df[reqd_strategies]
     df.index = pd.to_datetime(df.index, format=format)
-    return df[start_period:end_period]
+    if start_period and end_period is not None:
+        return df[start_period:end_period]
+    else:
+        return df
 
 
 def get_ann_vol(df):
@@ -783,6 +787,10 @@ def get_funding_ratio(pv_liabilities, pv_assets):
 
 def get_terminal_wealth(rets):
     return np.exp(np.log1p(rets).sum())
+
+
+def cumulate(rets):
+    return np.expm1(np.log1p(rets).sum())
 
 
 def get_optimal_wts(md_liab, ldb, sdb, av, disc_rate, dt):
