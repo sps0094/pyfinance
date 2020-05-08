@@ -9,13 +9,11 @@ import plotly.graph_objs as go
 import plotly.figure_factory as ff
 import numpy as np
 import scipy.stats as sp
-from scipy.optimize import Bounds, minimize, minimize_scalar
+from scipy.optimize import Bounds, minimize
 from plotly.subplots import make_subplots
 from dash.dependencies import Input, Output, State
-import math
-import ast
-from ipywidgets import widgets
-import json
+import statsmodels.api as sm
+
 
 
 def get_df_columns(filename):
@@ -1216,6 +1214,26 @@ def distplot_terminal_paths(floor_factor,**kwargs):
                                                   data=stats.to_dict('records'))])
                            ])
     app.run_server()
+
+
+def regress(dependent_var: pd.DataFrame, explanatory_var: pd.DataFrame, start_period=None, end_period=None, intercept=True, excess_mkt=True, rfcol='RF'):
+    """
+    Runs a linear regression to decompose the dependent variable into the explanatory variables
+        returns an object of type statsmodel's RegressionResults on which you can call
+           .summary() to print a full summary
+           .params for the coefficients
+           .tvalues and .pvalues for the significance levels
+           .rsquared_adj and .rsquared for quality of fit
+    """
+    dependent_var = dependent_var.loc[start_period:end_period]
+    explanatory_var = explanatory_var.loc[start_period:end_period]
+    if excess_mkt:
+        dependent_var = dependent_var - explanatory_var.loc[:, [rfcol]].values
+        explanatory_var = explanatory_var.drop([rfcol], axis=1)
+    if intercept:
+        explanatory_var['Alpha'] = 1
+    regression_result = sm.OLS(dependent_var, explanatory_var).fit()
+    return regression_result
 
 
 
