@@ -3,6 +3,8 @@ import numpy as np
 import pandas as pd
 from pandas.tseries.offsets import MonthBegin
 
+
+#START LAB 201
 brka_d = pd.read_csv('data/brka_d_ret.csv', parse_dates=True, index_col=0)
 brka_m = brka_d.resample('1M').apply(erk.cumulate)
 brka_m.index -= MonthBegin(1)
@@ -13,3 +15,7 @@ rr_ffm = erk.regress(brka_m, fff, '1990', rfcol='RF')
 rr_ffm_nint = erk.regress(brka_m, fff, '1990', rfcol='RF', intercept=False)
 print(rr_ffm.summary())
 print(rr_ffm_nint.summary())
+# END LAB 201
+
+#START LAB 202
+erk.style_analyze(brka_m, fff, start_period='1990', end_period='2018', droprf=True, rfcol='RF')

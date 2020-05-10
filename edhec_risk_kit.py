@@ -1236,6 +1236,42 @@ def regress(dependent_var: pd.DataFrame, explanatory_var: pd.DataFrame, start_pe
     return regression_result
 
 
+def tracking_error(act_rets, exp_rets):
+    act_rets.columns = [0]
+    err = act_rets - exp_rets
+    sqderr = (err ** 2).sum()
+    return np.sqrt(sqderr)
+
+
+def pf_tracking_error(weights, actual_rets, bm_rets):
+    exp_rets = pd.DataFrame(data=(weights*bm_rets).sum(axis=1))
+    return tracking_error(actual_rets, exp_rets)
+
+
+def style_analyze(dependent_var: pd.DataFrame, explanatory_var: pd.DataFrame, start_period=None, end_period=None, droprf=False, rfcol='RF'):
+    dependent_var = dependent_var.loc[start_period:end_period]
+    explanatory_var = explanatory_var.loc[start_period:end_period]
+    if droprf:
+        explanatory_var = explanatory_var.drop([rfcol], axis=1)
+    n_expl_var = explanatory_var.shape[1]
+    init_guess = np.repeat(1/n_expl_var, n_expl_var)
+    bounds = Bounds(lb=0.0, ub=1.0)
+    wts_sum_to_1 = {
+        'type': 'eq',
+        'fun': lambda wts: np.sum(wts) - 1
+    }
+    result = minimize(fun=pf_tracking_error,
+                      args=(dependent_var, explanatory_var),
+                      bounds=bounds,
+                      constraints=[wts_sum_to_1],
+                      method='SLSQP',
+                      options={'disp': False},
+                      x0=init_guess)
+    weights = pd.Series(data=result.x, index=explanatory_var.columns)
+    return weights
+
+
+
 
 
 
