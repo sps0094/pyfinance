@@ -22,7 +22,7 @@ def get_df_columns(filename):
     return df.columns
 
 
-def get_df(filename, start_period, end_period, format, reqd_strategies, mode='return'):
+def get_df(filename, start_period=None, end_period=None, format='%Y%m', reqd_strategies=None, mode='return'):
     """
 
     :param filename:
@@ -1224,6 +1224,8 @@ def regress(dependent_var: pd.DataFrame, explanatory_var: pd.DataFrame, start_pe
            .tvalues and .pvalues for the significance levels
            .rsquared_adj and .rsquared for quality of fit
     """
+    if isinstance(dependent_var, pd.Series):
+        dependent_var = pd.DataFrame(dependent_var)
     dependent_var = dependent_var.loc[start_period:end_period]
     explanatory_var = explanatory_var.loc[start_period:end_period]
     if excess_mkt:
@@ -1248,6 +1250,8 @@ def pf_tracking_error(weights, actual_rets, bm_rets):
 
 
 def style_analyze(dependent_var: pd.DataFrame, explanatory_var: pd.DataFrame, start_period=None, end_period=None, droprf=False, rfcol='RF'):
+    if isinstance(dependent_var, pd.Series):
+        dependent_var = pd.DataFrame(dependent_var)
     dependent_var = dependent_var.loc[start_period:end_period]
     explanatory_var = explanatory_var.loc[start_period:end_period]
     if droprf:
