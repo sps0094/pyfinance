@@ -1285,9 +1285,25 @@ def style_analyze(dependent_var: pd.DataFrame, explanatory_var: pd.DataFrame, st
 
 #WEIGHTING OPTIMIZERS - BACKTEST WEIGHTING SCHEMES
 
+def weight_ew(r, **kwargs):
+    n_components = len(r.columns)
+    weights = np.repeat(1/n_components, n_components)
+    return pd.Series(weights, index=r.columns)
 
 
+def weight_cw(r, cap_wts, **kwargs):
+    cap_wts = cap_wts.loc[r.index[0]] # Because for a rolling period, i would create PF using 1st available market weights for such window.
+    return cap_wts
 
+
+def bt_roll(r, window, weighting_scheme, **kwargs):
+    total_periods = len(r.index)
+    windows =[(start, start+window) for start in range(total_periods-window+1)]
+    weights = [weighting_scheme(r.iloc[win[0]:win[1]], **kwargs) for win in windows]
+    # Convert from list of weights to dataframe with sectors along columns and index begining after first rolling period, so that it aligns with returns df
+    weights = pd.DataFrame(weights, columns=r.columns, index=r.iloc[window-1:].index)
+    returns = (weights * r).sum(axis=1, min_count=1)
+    return returns
 
 
 
