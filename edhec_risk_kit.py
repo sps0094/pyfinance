@@ -22,7 +22,7 @@ def get_df_columns(filename):
     return df.columns
 
 
-def get_df(filename, start_period=None, end_period=None, format='%Y%m', reqd_strategies=None, mode='return'):
+def get_df(filename, start_period=None, end_period=None, format='%Y%m', reqd_strategies=None, mode='return', to_per=False):
     """
 
     :param filename:
@@ -40,11 +40,14 @@ def get_df(filename, start_period=None, end_period=None, format='%Y%m', reqd_str
     df.columns = df.columns.str.strip()
     if reqd_strategies is not None:
         df = df[reqd_strategies]
-    df.index = pd.to_datetime(df.index, format=format)
-    if start_period and end_period is not None:
-        return df[start_period:end_period]
+    if to_per:
+        df.index = pd.to_datetime(df.index, format=format).to_period('M')
     else:
-        return df
+        df.index = pd.to_datetime(df.index, format=format)
+    # if start_period and end_period is not None:
+    #     return df[start_period:end_period]
+    # else:
+    return df[start_period:end_period]
 
 
 def get_ann_vol(df):
@@ -53,7 +56,10 @@ def get_ann_vol(df):
 
 
 def get_ann_return(df):
-    ann_factor = 12 / len(df.index)
+    if isinstance(df, (np.ndarray, np.generic)):
+        ann_factor = 12 / df.shape[0]
+    else:
+        ann_factor = 12 / len(df.index)
     ann_ret_np = np.expm1(ann_factor * (np.log1p(df).sum()))  # using log method for eff computation
     return ann_ret_np
 
@@ -121,10 +127,12 @@ def drawdown(df: pd.DataFrame, retrive_index=False, init_wealth=1000, is1p=True)
     return [wealth_index, prev_peaks, drawdowns]
 
 
-def risk_info(df, risk_plot: list, rf, alpha, var_method='cornish'):
+def risk_info(df, risk_plot=['ann_ret'], rf=0.03, alpha=0.05, var_method='cornish', only_sharpe=False):
     ann_vol = get_ann_vol(df)
     ann_ret = get_ann_return(df)
     sharpe_ratio = get_sharpe_ratio(ann_ret, ann_vol, rf)
+    if only_sharpe:
+        return sharpe_ratio
     semi_std = get_semi_std(df)
     kurtosis = sp.kurtosis(df, fisher=True)
     skew = sp.skew(df)
@@ -311,8 +319,7 @@ def get_corr_mat(df, window):
     corr_mat = df.rolling(window=window).corr().dropna(how='all', axis=0)
     corr_mat.index.names = ['Date', 'Sector']
     corr_groupings = corr_mat.groupby(level='Date')
-    corr_series = corr_groupings.apply(lambda
-                                           corr_mat: corr_mat.values.mean())  # getting mean corr for corr_mat for each date (each date being groupedby)
+    corr_series = corr_groupings.apply(lambda corr_mat: corr_mat.values.mean())  # getting mean corr for corr_mat for each date (each date being groupedby)
     return [corr_mat, corr_series]
 
 
@@ -478,17 +485,19 @@ def plot_eff_frontier(ret_series: pd.Series, cov_df: pd.DataFrame, n_points: int
 
 
 def plot_corr_mktret(ind_ret_filename, n_firms_filename, size_filename, start_period, end_period, format,
-                     reqd_strategies, window=36, retrieve_mcw=False):
+                     reqd_strategies=None, window=36, retrieve_mcw=False, to_per=False, retrieve_mkt_cap_wts=False):
     app = dash.Dash()
     # Populate all reqd dataframes
-    ind_ret_m_df = get_df(ind_ret_filename, start_period, end_period, format, reqd_strategies, mode='return')
-    ind_n_firms_df = get_df(n_firms_filename, start_period, end_period, format, reqd_strategies, mode='nos')
-    ind_size_df = get_df(size_filename, start_period, end_period, format, reqd_strategies, mode='size')
+    ind_ret_m_df = get_df(ind_ret_filename, start_period, end_period, format, reqd_strategies, mode='return', to_per=to_per)
+    ind_n_firms_df = get_df(n_firms_filename, start_period, end_period, format, reqd_strategies, mode='nos', to_per=to_per)
+    ind_size_df = get_df(size_filename, start_period, end_period, format, reqd_strategies, mode='size', to_per=to_per)
 
     # industry returns --> mkt cap returns for index constructions
     mkt_cap_df = ind_n_firms_df * ind_size_df
     total_mkt_cap_series = mkt_cap_df.sum(axis=1)
     mkt_wts_df = mkt_cap_df.divide(total_mkt_cap_series, axis=0)
+    if retrieve_mkt_cap_wts:
+        return mkt_wts_df
     mcw = ind_ret_m_df * mkt_wts_df
     mcw_ret_df = pd.DataFrame({'mkt_cap_wt_ret_monthly': mcw.sum(axis=1)})
     if retrieve_mcw:
