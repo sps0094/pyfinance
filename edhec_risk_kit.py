@@ -1285,10 +1285,20 @@ def style_analyze(dependent_var: pd.DataFrame, explanatory_var: pd.DataFrame, st
 
 #WEIGHTING OPTIMIZERS - BACKTEST WEIGHTING SCHEMES
 
-def weight_ew(r, **kwargs):
+def weight_ew(r, cap_wts=None, max_cw_mult=None, microcap_threshold=None, **kwargs):
     n_components = len(r.columns)
     weights = np.repeat(1/n_components, n_components)
-    return pd.Series(weights, index=r.columns)
+    weights = pd.Series(weights, index=r.columns)
+    if cap_wts is not None:
+        cap_weights = cap_wts.loc[r.index[0]] # Cap wts as at begining of a window
+        if microcap_threshold is not None and microcap_threshold > 0:
+            drop_microcap_mask = cap_weights < microcap_threshold
+            weights[drop_microcap_mask] = 0
+            weights = weights/weights.sum() #Recomputes weights
+        if max_cw_mult is not None and max_cw_mult > 0:
+            weights = np.minimum(weights, cap_weights*max_cw_mult)
+            weights = weights / weights.sum()  # Recomputes weights
+    return weights
 
 
 def weight_cw(r, cap_wts, **kwargs):
