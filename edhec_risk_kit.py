@@ -261,11 +261,10 @@ def get_mean_var_pts(ret_series, cov_df, n_points, reqd_strategies):
     return mean_var_df
 
 
-def get_msr(ret_series, cov_df, rf, reqd_strategies, gmv=False):
+def get_msr(ret_series, cov_df, rf, reqd_strategies, gmv=False, onlywts=False):
     n_assets = ret_series.shape[0]
     if gmv:
-        ret_array = np.repeat(1.0,
-                              n_assets)  # for gmv wts to be independent of E(R) and thus minimisation function tries to manipulate volatility to minimioze -ve SR
+        ret_array = np.repeat(1.0, n_assets)  # for gmv wts to be independent of E(R) and thus minimisation function tries to manipulate volatility to minimioze -ve SR
     else:
         ret_array = ret_series.to_numpy()
     cov_mat = cov_df.to_numpy()
@@ -287,6 +286,8 @@ def get_msr(ret_series, cov_df, rf, reqd_strategies, gmv=False):
                        options={'disp': False},
                        x0=init_guess)
     msr_wt_array = results.x
+    if onlywts:
+        return msr_wt_array
     if gmv:
         ret_array = ret_series.to_numpy()  # ret_series restored for calculating mean_var pts using optimized weights (optimized independent of E(R))
     msr_ret = get_pf_ret(msr_wt_array, ret_array)
@@ -295,8 +296,8 @@ def get_msr(ret_series, cov_df, rf, reqd_strategies, gmv=False):
     return [msr_vol, msr_ret, hover_desc, msr_wt_array]
 
 
-def get_gmv(ret_series, cov_df, rf, reqd_strategies):
-    return get_msr(ret_series, cov_df, rf, reqd_strategies, gmv=True)
+def get_gmv(ret_series, cov_df, rf, reqd_strategies, onlywts=False):
+    return get_msr(ret_series, cov_df, rf, reqd_strategies, gmv=True, onlywts=onlywts)
 
 
 def get_eq(ret_series, cov_df, reqd_strategies):
