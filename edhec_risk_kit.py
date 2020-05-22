@@ -1307,6 +1307,16 @@ def weight_cw(r, cap_wts, **kwargs):
     return cap_wts
 
 
+def sample_cov(r):
+    return r.cov()
+
+
+def weight_gmv(r, cov_estimator=sample_cov, **kwargs):
+    cov_df = cov_estimator(r)
+    wts = get_gmv(ret_series=r, cov_df=cov_df, ef=0.03, reqd_strategies=None, onlywts=True)
+    return wts
+
+
 def bt_roll(r, window, weighting_scheme, **kwargs):
     total_periods = len(r.index)
     windows =[(start, start+window) for start in range(total_periods-window+1)]
