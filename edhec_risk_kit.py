@@ -12,6 +12,7 @@ from scipy.optimize import Bounds, minimize
 from plotly.subplots import make_subplots
 from dash.dependencies import Input, Output, State
 import statsmodels.api as sm
+import statsmodels.stats.moment_helpers as mh
 
 
 
@@ -262,7 +263,10 @@ def get_mean_var_pts(ret_series, cov_df, n_points, reqd_strategies):
 
 
 def get_msr(ret_series, cov_df, rf, reqd_strategies, gmv=False, onlywts=False):
-    n_assets = ret_series.shape[0]
+    if onlywts: # if called from bt_roll and gmv weighting schemes
+        n_assets = len(ret_series.columns)
+    else:
+        n_assets = ret_series.shape[0]
     if gmv:
         ret_array = np.repeat(1.0, n_assets)  # for gmv wts to be independent of E(R) and thus minimisation function tries to manipulate volatility to minimioze -ve SR
     else:
@@ -1307,13 +1311,38 @@ def weight_cw(r, cap_wts, **kwargs):
     return cap_wts
 
 
-def sample_cov(r):
+def sample_cov(r, **kwargs):
     return r.cov()
 
 
+def cc_cov(r, **kwargs):
+    """
+    Estimates a covariance matrix by using the Elton/Gruber Constant Correlation model
+    Average of sample correlation is used to find const_cov
+    """
+    sample_corr = r.corr()
+    n_assets = len(r.columns)
+    avg_distinct_rho = (sample_corr.values.sum() - n_assets) / (n_assets * (n_assets - 1)) # Taking avg of off diagonal corr matrix on one side
+    const_corr = np.full_like(sample_corr, avg_distinct_rho)
+    np.fill_diagonal(const_corr, 1.)
+    sd = r.std()
+    # Convert to cov using statsmodel
+    const_cov_sm = mh.corr2cov(const_corr, sd)
+    # Convert to cov using formula and outer product - alternate way is to use sd @ sd.T instead of np.outer(sd, sd) -> yields matrix(mxm)
+    const_cov = const_corr * np.outer(sd, sd)
+    return pd.DataFrame(const_cov, columns=r.columns, index=r.columns)
+
+
+def stat_shrinkage_cov(r, delta=0.5, **kwargs):
+    s_cov = sample_cov(r, **kwargs)
+    c_cov = cc_cov(r, **kwargs)
+    stat_cov = delta * s_cov + (1 - delta) * c_cov
+    return stat_cov
+
+
 def weight_gmv(r, cov_estimator=sample_cov, **kwargs):
-    cov_df = cov_estimator(r)
-    wts = get_gmv(ret_series=r, cov_df=cov_df, ef=0.03, reqd_strategies=None, onlywts=True)
+    cov_df = cov_estimator(r, **kwargs)
+    wts = get_gmv(ret_series=r, cov_df=cov_df, rf=0.03, reqd_strategies=None, onlywts=True)
     return wts
 
 
