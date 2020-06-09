@@ -1336,7 +1336,7 @@ def cc_cov(r, **kwargs):
 def stat_shrinkage_cov(r, delta=0.5, **kwargs):
     s_cov = sample_cov(r, **kwargs)
     c_cov = cc_cov(r, **kwargs)
-    stat_cov = delta * s_cov + (1 - delta) * c_cov
+    stat_cov = delta * c_cov + (1 - delta) * s_cov
     return stat_cov
 
 
@@ -1348,10 +1348,10 @@ def weight_gmv(r, cov_estimator=sample_cov, **kwargs):
 
 def bt_roll(r, window, weighting_scheme, **kwargs):
     total_periods = len(r.index)
-    windows =[(start, start+window) for start in range(total_periods-window+1)]
+    windows =[(start, start+window) for start in range(total_periods-window)]
     weights = [weighting_scheme(r.iloc[win[0]:win[1]], **kwargs) for win in windows]
     # Convert from list of weights to dataframe with sectors along columns and index begining after first rolling period, so that it aligns with returns df
-    weights = pd.DataFrame(weights, columns=r.columns, index=r.iloc[window-1:].index)
+    weights = pd.DataFrame(weights, columns=r.columns, index=r.iloc[window:].index)
     returns = (weights * r).sum(axis=1, min_count=1)
     return returns
 
