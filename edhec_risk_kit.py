@@ -1356,5 +1356,41 @@ def bt_roll(r, window, weighting_scheme, **kwargs):
     return returns
 
 
+def as_colvec(x):
+    if np.ndim(x) == 2:
+        return x
+    else:
+        return np.expand_dims(x, axis=1)
 
 
+def rev_opt_implied_returns(delta, sigma, w):
+    """
+    Obtain the implied expected returns by reverse engineering the weights
+    Inputs:
+    delta: Risk Aversion Coefficient (scalar)
+    sigma: Variance-Covariance Matrix (N x N) as DataFrame
+        w: Portfolio weights (N x 1) as Series
+    Returns an N x 1 vector of Returns as Series
+    """
+    pi = delta * sigma.dot(w).squeeze() # @ may be used instead of dot, but some issues arise if a df is not passed
+    pi.name = 'Implied Returns'
+    return pi
+
+
+def omega_proportional_prior(sigma, tau, p):
+    """
+    As we noted previously, \cite{he1999intuition} suggest that if the investor does not have a specific way to explicitly
+    quantify the uncertaintly associated with the view in the Ω matrix, one could make the simplifying assumption
+    that Ω is proportional to the variance of the prior.
+
+    Returns the He-Litterman simplified Omega
+    Inputs:
+    sigma: N x N Covariance Matrix as DataFrame
+    tau: a scalar
+    p: a K x N DataFrame linking Q and Assets
+    returns a K x K diagonal DataFrame, a Matrix representing Prior Uncertainties - Omega
+    """
+    helit_omega_matrix_kxk = p.dot(tau.sigma).dot(p.T)
+    helit_omega_diag_values = np.diag(helit_omega_matrix_kxk)
+    # Make a diag matrix from the diag elements of Omega
+    return pd.DataFrame(np.diag(helit_omega_diag_values), columns=p.index, index=p.index)
