@@ -45,13 +45,18 @@ app.layout = html.Div(
      html.Div(id='pick_table_container', children=[dt.DataTable(id='pick_table', editable=True)],
               style={'display': 'block'}),
      html.Div(id='dump', style={'display': 'none'}),
+     html.Div(id='dump_vw_df', style={'display': 'none'}),
+     html.Div(id='dump_wt_df', style={'display': 'none'}),
      html.Div(id='dump_no', style={'display': 'none'}),
      html.Button(id='submit', children='SUBMIT', n_clicks=0, style={'display': 'inline-block'}),
      html.Button(id='update', children='UPDATE', n_clicks=0, style={'display': 'none'})])
 
 
 @app.callback([Output('asset_list', 'value'),
-               Output('dump_no', 'children')],
+               Output('dump_no', 'children'),
+               Output('dump_vw_df', 'children'),
+               Output('dump_wt_df', 'children'),
+               Output('display_table', 'options')],
               [Input('local_file', 'value')])
 def upd_asset_list(localfile):
     if localfile:
@@ -65,13 +70,20 @@ def upd_asset_list(localfile):
                                                 retrieve_mkt_cap_wts=True,
                                                 format='%Y%m')
         asset_list = [' '.join(list(ind_vw_2014.columns))]
-        return asset_list, len(ind_vw_2014.columns)
+        json_vw = ind_vw_2014.to_json(date_format='iso', orient='table')
+        json_wts = ind_mkt_wts_2014.to_json(date_format='iso', orient='table')
+        checkoptions = [
+            {'label': 'Views', 'value': 4},
+            {'label': 'Pick_Mat', 'value': 5},
+        ]
+        return asset_list, len(ind_vw_2014.columns), json_vw, json_wts, checkoptions
 
 
 @app.callback([Output('no_views', 'max')],
               [Input('dump_no', 'children')])
 def max_views(max):
     return [int(max)]
+
 
 @app.callback([Output('wts_table_container', 'style'),
                Output('rhos_table_container', 'style'),
@@ -133,25 +145,35 @@ def upd_visibility(n_clicks, value, asset_list, no_views):
                State('view_table', 'data'),
                State('pick_table', 'data'),
                State('asset_list', 'value'),
-               State('display_table', 'value')])
-def update_values(n_clicks, wts, cov, rhos, vol, views, pick_mat, asset_list, value):
+               State('display_table', 'value'),
+               State('dump_vw_df', 'children'),
+               State('dump_wt_df', 'children')])
+def update_values(n_clicks, wts, cov, rhos, vol, views, pick_mat, asset_list, value, ind_vw_2014, ind_mkt_wts_2014):
+    if isinstance(asset_list, list):
+        asset_list = asset_list[0]
     asset_list = list(asset_list.split(' '))
-    if 0 in value:
-        wts_prior = pd.DataFrame(wts)['wts']
-        wts_prior = wts_prior.astype('float')
-    if 1 in value:
-        rhos_prior = pd.DataFrame(rhos, columns=[asset for asset in asset_list]).astype('float')
+    if ind_vw_2014 is not None and ind_mkt_wts_2014 is not None:
+        ind_vw_2014 = pd.read_json(ind_vw_2014, orient='table').to_period('M')
+        ind_mkt_wts_2014 = pd.read_json(ind_mkt_wts_2014, orient='table').to_period('M').iloc[0].rename('wts_prior')
+        wts_prior = ind_mkt_wts_2014
+        sigma_prior = erk.get_cov(ind_vw_2014)
     else:
-        rhos_prior = 0
-    if 2 in value:
-        vol_prior = pd.DataFrame(vol)['vol']
-        vol_prior = vol_prior.astype('float')
-    else:
-        vol_prior = 0
-    if 3 in value:
-        sigma_prior = pd.DataFrame(cov, columns=[asset for asset in asset_list]).astype('float')
-    else:
-        sigma_prior = rhos_prior.mul(vol_prior, axis=0)
+        if 0 in value:
+            wts_prior = pd.DataFrame(wts).set_index('asset_name_wts').squeeze().rename('wts_prior').fillna(0)
+            wts_prior = wts_prior.astype('float')
+        if 1 in value:
+            rhos_prior = pd.DataFrame(rhos, columns=[asset for asset in asset_list]).astype('float')
+        else:
+            rhos_prior = 0
+        if 2 in value:
+            vol_prior = pd.DataFrame(vol)['vol']
+            vol_prior = vol_prior.astype('float')
+        else:
+            vol_prior = 0
+        if 3 in value:
+            sigma_prior = pd.DataFrame(cov, columns=[asset for asset in asset_list]).astype('float')
+        else:
+            sigma_prior = rhos_prior.mul(vol_prior, axis=0)
     if 4 in value:
         views = pd.DataFrame(views)['views']
         views = views.astype('float')
