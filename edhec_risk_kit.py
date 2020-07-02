@@ -14,6 +14,7 @@ from dash.dependencies import Input, Output, State
 import statsmodels.api as sm
 import statsmodels.stats.moment_helpers as mh
 from numpy.linalg import inv
+import math
 
 
 
@@ -1364,6 +1365,7 @@ def as_colvec(x):
         return np.expand_dims(x, axis=1)
 
 
+
 def rev_opt_implied_returns(delta, sigma_prior: pd.DataFrame, wts_prior: pd.Series):
     """
     Obtain the implied expected returns by reverse engineering the weights
@@ -1373,7 +1375,7 @@ def rev_opt_implied_returns(delta, sigma_prior: pd.DataFrame, wts_prior: pd.Seri
         w: Portfolio weights (N x 1) as Series
     Returns an N x 1 vector of Returns as Series
     """
-    pi = delta * sigma_prior.dot(wts_prior).squeeze() # @ may be used instead of dot, but some issues arise if a df is not passed
+    pi = (delta * sigma_prior @ wts_prior).squeeze() # @ may be used instead of dot, but some issues arise if a df is not passed
     pi.name = 'Implied Returns'
     return pi
 
@@ -1391,8 +1393,9 @@ def omega_proportional_prior(sigma_prior:pd.DataFrame, tau, p: pd.DataFrame):
     p: a K x N DataFrame linking Q and Assets
     returns a K x K diagonal DataFrame, a Matrix representing Prior Uncertainties - Omega
     """
-    helit_omega_matrix_kxk = p.dot(tau*sigma_prior).dot(p.T)
-    helit_omega_diag_values = np.diag(helit_omega_matrix_kxk.to_numpy())
+    scaled_sigma_prior = (tau*sigma_prior).to_numpy()
+    helit_omega_matrix_kxk = p.to_numpy() @ scaled_sigma_prior @ p.T.to_numpy()
+    helit_omega_diag_values = np.diag(helit_omega_matrix_kxk)
     # Make a diag matrix from the diag elements of Omega
     return pd.DataFrame(np.diag(helit_omega_diag_values), columns=p.index, index=p.index)
 
@@ -1410,20 +1413,23 @@ def black_litterman(wts_prior: pd.Series, sigma_prior: pd.DataFrame, p: pd.DataF
     :return: posterior returns and cov based on black litterman formula
     """
     if omega is None:
-        omega = omega_proportional_prior(sigma_prior, tau, p)
+        omega = omega_proportional_prior(sigma_prior, tau, p).to_numpy()
+    p = p.to_numpy()
+    q = q.to_numpy()
     n_assets = wts_prior.shape[0]
     k_views = q.shape[0]
     # Get implied pi
-    pi = rev_opt_implied_returns(delta, sigma_prior, wts_prior)
+    pi = rev_opt_implied_returns(delta, sigma_prior, wts_prior).to_numpy()
     # Scaled sigma_prior
-    scaled_sigma_prior = tau*sigma_prior
-    bl_mu = pi + scaled_sigma_prior.dot(p.T).dot(inv(p.dot(scaled_sigma_prior).dot(p.T) + omega).dot(q - p.dot(pi).to_numpy()))
-    bl_sigma = sigma_prior + scaled_sigma_prior - scaled_sigma_prior.dot(p.T).dot(inv(p.dot(scaled_sigma_prior).dot(p.T) + omega)).dot(p).dot(scaled_sigma_prior)
+    scaled_sigma_prior = (tau*sigma_prior).to_numpy()
+    common_factor = scaled_sigma_prior @ p.T @ inv(p @ scaled_sigma_prior @ p.T + omega)
+    bl_mu = pi + common_factor @ (q - (p @ pi))
+    bl_sigma = sigma_prior + scaled_sigma_prior - common_factor @ p @ scaled_sigma_prior
     return bl_mu, bl_sigma
 
 
 def get_inverse_df(df: pd.DataFrame):
-    return pd.DataFrame(df.to_numpy(), index=df.columns, columns=df.index)
+    return pd.DataFrame(inv(df), index=df.columns, columns=df.index)
 
 
 def w_msr_closed_form(sigma: pd.DataFrame, mu: pd.Series, scale=True):
@@ -1434,7 +1440,7 @@ def w_msr_closed_form(sigma: pd.DataFrame, mu: pd.Series, scale=True):
     :param scale: to give % of wt and it assumes all wts are +ve
     :return: wts_msr
     """
-    wts_msr = inv(sigma).dot(mu)
+    wts_msr = inv(sigma) @ mu
     if scale:
         wts_msr = wts_msr/wts_msr.sum()
     return wts_msr

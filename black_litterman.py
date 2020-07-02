@@ -23,13 +23,24 @@ checkoptions = [
     {'label': 'Views', 'value': 4},
     {'label': 'Pick_Mat', 'value': 5},
 ]
+
+
+def get_bl_results(wts_prior: pd.Series, sigma_prior: pd.DataFrame, delta, tau, p: pd.DataFrame=None, q: pd.Series=None, omega=None):
+    pi = erk.rev_opt_implied_returns(delta, sigma_prior, wts_prior)
+    bl_mu, bl_sigma = erk.black_litterman(wts_prior, sigma_prior, p, q, omega, delta, tau)
+    wts_msr = erk.w_msr_closed_form(bl_sigma, bl_mu, scale=True)
+    return pi, bl_mu, bl_sigma, wts_msr
+
+
 app.layout = html.Div(
     [html.Div([html.Div([dcc.Checklist(id='local_file', options=[{'label': 'Y', 'value': 1}], value=[],
                                        labelStyle={'display': 'inline-block'})]),
                html.Label(children='Enter list of asset names: '),
                dcc.Input(id='asset_list', value='', type='text')], style={'display': 'inline-block'}),
      html.Div([html.Label(children='Enter no of views: '),
-               dcc.Input(id='no_views', value='', type='number')], style={'display': 'inline-block'}),
+               dcc.Input(id='no_views', value='', type='number'),
+               dcc.Input(id='tau', value=0.02, type='number'),
+               dcc.Input(id='delta', value=2.5, type='number')], style={'display': 'inline-block'}),
      html.Div([dcc.Checklist(id='display_table', options=checkoptions, value=[],
                              labelStyle={'display': 'inline-block'})]),
      html.Div(id='wts_table_container', children=[dt.DataTable(id='wts_table', editable=True)],
@@ -44,12 +55,12 @@ app.layout = html.Div(
               style={'display': 'block'}),
      html.Div(id='pick_table_container', children=[dt.DataTable(id='pick_table', editable=True)],
               style={'display': 'block'}),
-     html.Div(id='dump', style={'display': 'none'}),
      html.Div(id='dump_vw_df', style={'display': 'none'}),
      html.Div(id='dump_wt_df', style={'display': 'none'}),
      html.Div(id='dump_no', style={'display': 'none'}),
      html.Button(id='submit', children='SUBMIT', n_clicks=0, style={'display': 'inline-block'}),
-     html.Button(id='update', children='UPDATE', n_clicks=0, style={'display': 'none'})])
+     html.Button(id='update', children='UPDATE', n_clicks=0, style={'display': 'none'}),
+     html.Div(html.Pre(id='dump', style={'display': 'block'}))])
 
 
 @app.callback([Output('asset_list', 'value'),
@@ -136,7 +147,7 @@ def upd_visibility(n_clicks, value, asset_list, no_views):
                'display': 'inline-block'}
 
 
-@app.callback([Output('dump', 'children')],
+@app.callback(Output('dump', 'children'),
               [Input('update', 'n_clicks')],
               [State('wts_table', 'data'),
                State('cov_table', 'data'),
@@ -147,8 +158,10 @@ def upd_visibility(n_clicks, value, asset_list, no_views):
                State('asset_list', 'value'),
                State('display_table', 'value'),
                State('dump_vw_df', 'children'),
-               State('dump_wt_df', 'children')])
-def update_values(n_clicks, wts, cov, rhos, vol, views, pick_mat, asset_list, value, ind_vw_2014, ind_mkt_wts_2014):
+               State('dump_wt_df', 'children'),
+               State('tau', 'value'),
+               State('delta', 'value')])
+def update_values(n_clicks, wts, cov, rhos, vol, views, pick_mat, asset_list, value, ind_vw_2014, ind_mkt_wts_2014, tau, delta):
     if isinstance(asset_list, list):
         asset_list = asset_list[0]
     asset_list = list(asset_list.split(' '))
@@ -167,19 +180,24 @@ def update_values(n_clicks, wts, cov, rhos, vol, views, pick_mat, asset_list, va
             rhos_prior = 0
         if 2 in value:
             vol_prior = pd.DataFrame(vol)['vol']
-            vol_prior = vol_prior.astype('float')
+            vol_prior = vol_prior.astype('float').fillna(0)
         else:
             vol_prior = 0
         if 3 in value:
-            sigma_prior = pd.DataFrame(cov, columns=[asset for asset in asset_list]).astype('float')
+            sigma_prior = pd.DataFrame(cov, columns=[asset for asset in asset_list]).astype('float').fillna(0)
         else:
             sigma_prior = rhos_prior.mul(vol_prior, axis=0)
     if 4 in value:
         views = pd.DataFrame(views)['views']
-        views = views.astype('float')
+        views = views.astype('float').fillna(0)
     if 5 in value:
-        pick_df = pd.DataFrame(pick_mat, columns=[asset for asset in asset_list], index=views.index).astype('float')
-    return ' '
+        pick_df = pd.DataFrame(pick_mat, columns=[asset for asset in asset_list], index=views.index).astype('float').fillna(0)
+    pi, bl_mu, bl_sigma, wts_msr = get_bl_results(wts_prior, sigma_prior, delta, tau, pick_df, views)
+    disp_info = 'Implied returns: {},' \
+                'Posterior returns: {},' \
+                'Posterior Cov: {},' \
+                'Optimized Wts: {}'.format(pi, bl_mu, bl_sigma, wts_msr)
+    return disp_info
 
 
 app.run_server()
