@@ -1421,7 +1421,8 @@ def black_litterman(wts_prior: pd.Series, sigma_prior: pd.DataFrame, p: pd.DataF
     # Get implied pi
     pi = rev_opt_implied_returns(delta, sigma_prior, wts_prior).to_numpy()
     # Scaled sigma_prior
-    scaled_sigma_prior = (tau*sigma_prior).to_numpy()
+    sigma_prior = sigma_prior.to_numpy()
+    scaled_sigma_prior = (tau*sigma_prior)
     common_factor = scaled_sigma_prior @ p.T @ inv(p @ scaled_sigma_prior @ p.T + omega)
     bl_mu = pi + common_factor @ (q - (p @ pi))
     bl_sigma = sigma_prior + scaled_sigma_prior - common_factor @ p @ scaled_sigma_prior

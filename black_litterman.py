@@ -26,7 +26,7 @@ checkoptions = [
 
 
 def get_bl_results(wts_prior: pd.Series, sigma_prior: pd.DataFrame, delta, tau, p: pd.DataFrame=None, q: pd.Series=None, omega=None):
-    pi = erk.rev_opt_implied_returns(delta, sigma_prior, wts_prior)
+    pi = erk.rev_opt_implied_returns(delta, sigma_prior, wts_prior).to_numpy()
     bl_mu, bl_sigma = erk.black_litterman(wts_prior, sigma_prior, p, q, omega, delta, tau)
     wts_msr = erk.w_msr_closed_form(bl_sigma, bl_mu, scale=True)
     return pi, bl_mu, bl_sigma, wts_msr
@@ -60,7 +60,8 @@ app.layout = html.Div(
      html.Div(id='dump_no', style={'display': 'none'}),
      html.Button(id='submit', children='SUBMIT', n_clicks=0, style={'display': 'inline-block'}),
      html.Button(id='update', children='UPDATE', n_clicks=0, style={'display': 'none'}),
-     html.Div(html.Pre(id='dump', style={'display': 'block'}))])
+     html.Div(dt.DataTable(id='bl_results_table'), style={'display': 'flex', 'justify-content': 'space-evenly', 'padding-top': '25px'}),
+     html.Div(html.Pre(id='disp_bl_cov', style={'display': 'block'}), style={'display': 'flex', 'justify-content': 'space-evenly', 'padding-top': '25px'})])
 
 
 @app.callback([Output('asset_list', 'value'),
@@ -135,7 +136,7 @@ def upd_visibility(n_clicks, value, asset_list, no_views):
     data_vol = [dict(asset_name_wts=asset) for asset in asset_list]
     col_rhos = [{'id': 'rhos', 'name': 'Rhos'}] + [{'id': asset, 'name': asset} for asset in asset_list]
     data_rhos = [dict(rhos=asset) for asset in asset_list]
-    col_views = [{'id': 'views_no', 'name': 'Assets'}] + [{'id': 'views', 'name': 'views'}]
+    col_views = [{'id': 'views_no', 'name': 'Views'}] + [{'id': 'views', 'name': 'views'}]
     data_views = [dict(views_no=k) for k in range(1, no_views + 1)]
     col_cov = [{'id': 'cov', 'name': 'cov_mat'}] + [{'id': asset, 'name': asset} for asset in asset_list]
     data_cov = [dict(cov=asset) for asset in asset_list]
@@ -147,7 +148,9 @@ def upd_visibility(n_clicks, value, asset_list, no_views):
                'display': 'inline-block'}
 
 
-@app.callback(Output('dump', 'children'),
+@app.callback([Output('disp_bl_cov', 'children'),
+               Output('bl_results_table', 'columns'),
+               Output('bl_results_table', 'data'),],
               [Input('update', 'n_clicks')],
               [State('wts_table', 'data'),
                State('cov_table', 'data'),
@@ -193,11 +196,15 @@ def update_values(n_clicks, wts, cov, rhos, vol, views, pick_mat, asset_list, va
     if 5 in value:
         pick_df = pd.DataFrame(pick_mat, columns=[asset for asset in asset_list], index=views.index).astype('float').fillna(0)
     pi, bl_mu, bl_sigma, wts_msr = get_bl_results(wts_prior, sigma_prior, delta, tau, pick_df, views)
-    disp_info = 'Implied returns: {},' \
-                'Posterior returns: {},' \
-                'Posterior Cov: {},' \
-                'Optimized Wts: {}'.format(pi, bl_mu, bl_sigma, wts_msr)
-    return disp_info
+    bl_results_df = pd.DataFrame({'Asset': asset_list,
+                                  'Cur_wts': wts_prior,
+                                  'pi': pi,
+                                  'bl_mu': bl_mu,
+                                  'opt_wts': wts_msr})
+    disp_bl_cov = 'Posterior cov: {}'.format(bl_sigma)
+    bl_results_columns = [{'name': col, 'id': col} for col in bl_results_df.columns]
+    bl_results_data = bl_results_df.to_dict('records')
+    return disp_bl_cov, bl_results_columns, bl_results_data
 
 
 app.run_server()
