@@ -17,7 +17,6 @@ from numpy.linalg import inv
 import math
 
 
-
 def get_df_columns(filename):
     df = pd.read_csv(filename, na_values=-99.99, index_col=0, parse_dates=[0])
     df.dropna(how='all', inplace=True, axis=1)
@@ -25,7 +24,8 @@ def get_df_columns(filename):
     return df.columns
 
 
-def get_df(filename, start_period=None, end_period=None, format='%Y%m', reqd_strategies=None, mode='return', to_per=False):
+def get_df(filename, start_period=None, end_period=None, format='%Y%m', reqd_strategies=None, mode='return',
+           to_per=False):
     """
 
     :param filename:
@@ -156,11 +156,11 @@ def risk_info(df, risk_plot=['ann_ret'], rf=0.03, alpha=0.05, var_method='cornis
 
 
 def terminal_risk_stats(fv, floor_factor, wealth_index, aslst=False, strategy=None):
-    floor_value = fv*floor_factor
+    floor_value = fv * floor_factor
     if isinstance(wealth_index, pd.DataFrame):
         terminal_wealth = wealth_index.iloc[-1]
     else:
-        terminal_wealth = wealth_index # The terminal row
+        terminal_wealth = wealth_index  # The terminal row
     n_scenarios = terminal_wealth.shape[0]
     exp_wealth = np.mean(terminal_wealth)
     med_wealth = np.median(terminal_wealth)
@@ -265,12 +265,13 @@ def get_mean_var_pts(ret_series, cov_df, n_points, reqd_strategies):
 
 
 def get_msr(ret_series, cov_df, rf, reqd_strategies, gmv=False, onlywts=False):
-    if onlywts: # if called from bt_roll and gmv weighting schemes
+    if onlywts:  # if called from bt_roll and gmv weighting schemes
         n_assets = len(ret_series.columns)
     else:
         n_assets = ret_series.shape[0]
     if gmv:
-        ret_array = np.repeat(1.0, n_assets)  # for gmv wts to be independent of E(R) and thus minimisation function tries to manipulate volatility to minimioze -ve SR
+        ret_array = np.repeat(1.0,
+                              n_assets)  # for gmv wts to be independent of E(R) and thus minimisation function tries to manipulate volatility to minimioze -ve SR
     else:
         ret_array = ret_series.to_numpy()
     cov_mat = cov_df.to_numpy()
@@ -495,8 +496,10 @@ def plot_corr_mktret(ind_ret_filename, n_firms_filename, size_filename, start_pe
                      reqd_strategies=None, window=36, retrieve_mcw=False, to_per=False, retrieve_mkt_cap_wts=False):
     app = dash.Dash()
     # Populate all reqd dataframes
-    ind_ret_m_df = get_df(ind_ret_filename, start_period, end_period, format, reqd_strategies, mode='return', to_per=to_per)
-    ind_n_firms_df = get_df(n_firms_filename, start_period, end_period, format, reqd_strategies, mode='nos', to_per=to_per)
+    ind_ret_m_df = get_df(ind_ret_filename, start_period, end_period, format, reqd_strategies, mode='return',
+                          to_per=to_per)
+    ind_n_firms_df = get_df(n_firms_filename, start_period, end_period, format, reqd_strategies, mode='nos',
+                            to_per=to_per)
     ind_size_df = get_df(size_filename, start_period, end_period, format, reqd_strategies, mode='size', to_per=to_per)
 
     # industry returns --> mkt cap returns for index constructions
@@ -645,7 +648,7 @@ def plot(df, mode, reqd_strategies: list, risk_plot: list, poi, var_method, alph
 def gbm_stock(s0, n_scenarios, steps_per_yr, n_years, er, vol, floor, multiplier, rf, cppi, ret_series=False):
     floor_value = floor * s0
     dt = 1 / steps_per_yr
-    total_time_steps = int(n_years * steps_per_yr)+1
+    total_time_steps = int(n_years * steps_per_yr) + 1
 
     # Using refined method
     dz = np.random.normal(loc=(1 + er) ** dt, scale=vol * np.sqrt(dt),
@@ -741,19 +744,19 @@ def plot_gbm(s0=100):
         app.run_server()
 
 
-def get_macaulay_duration(pvf): # Nota annualized. Make sure to annualize
-    mac_dur = pvf.apply(lambda pvf: np.average(pvf.index+1, weights=pvf))
+def get_macaulay_duration(pvf):  # Nota annualized. Make sure to annualize
+    mac_dur = pvf.apply(lambda pvf: np.average(pvf.index + 1, weights=pvf))
     return mac_dur
 
 
-def get_discount_factor(disc_rate:pd.DataFrame, period):
-    disc_factors_df = disc_rate.apply(lambda r: np.power((1+r), -period))
+def get_discount_factor(disc_rate: pd.DataFrame, period):
+    disc_factors_df = disc_rate.apply(lambda r: np.power((1 + r), -period))
     return disc_factors_df
 
 
 def get_present_value(cash_flow: pd.Series, disc_rate: pd.DataFrame):
     if not isinstance(disc_rate, pd.DataFrame):
-        cash_flow.index -= 1 #To correct for cash_flow.index+1 when called from cir()
+        cash_flow.index -= 1  # To correct for cash_flow.index+1 when called from cir()
         disc_rate = pd.DataFrame(data=[disc_rate for t in cash_flow.index], index=cash_flow.index)
         get_present_value(cash_flow, disc_rate)
     if not len(disc_rate.index) == len(cash_flow.index):
@@ -761,19 +764,20 @@ def get_present_value(cash_flow: pd.Series, disc_rate: pd.DataFrame):
         cf_steps = cash_flow.shape[0]
         shortfall = cf_steps - dr_steps
         dr_last = disc_rate.iloc[-1]
-        append_rate_df = pd.DataFrame(data=np.asarray(pd.concat([dr_last] * shortfall, axis=0)).reshape(shortfall, disc_rate.shape[1]),
-                          index=range(dr_steps, cf_steps, 1))
+        append_rate_df = pd.DataFrame(
+            data=np.asarray(pd.concat([dr_last] * shortfall, axis=0)).reshape(shortfall, disc_rate.shape[1]),
+            index=range(dr_steps, cf_steps, 1))
         disc_rate = disc_rate.append(append_rate_df)
-    disc_factors = get_discount_factor(disc_rate, cash_flow.index+1)
-    present_value_factors = disc_factors.apply(lambda disc_factor: disc_factor*cash_flow)
+    disc_factors = get_discount_factor(disc_rate, cash_flow.index + 1)
+    present_value_factors = disc_factors.apply(lambda disc_factor: disc_factor * cash_flow)
     present_value = present_value_factors.sum()
     mac_dur = get_macaulay_duration(present_value_factors)
     return np.asarray(present_value), mac_dur
 
 
 def gen_bond_cash_flows(tenor, steps_per_year, cr, fv):
-    dt = 1/steps_per_year
-    total_time_steps = int(tenor*steps_per_year)
+    dt = 1 / steps_per_year
+    total_time_steps = int(tenor * steps_per_year)
     periodicity_adj_cr = cr * dt
     coupon_cf = fv * periodicity_adj_cr
     bond_cf = pd.Series([coupon_cf for i in range(0, total_time_steps)])
@@ -789,9 +793,9 @@ def get_bond_prices(n_years, tenor, steps_per_year, disc_rate, cr=0.03, fv=100):
         bond_prices, mac_dur = get_present_value(bond_cf, periodicity_adj_disc_rate)
         return bond_prices, mac_dur, bond_cf
     else:
-        total_time_steps = int(n_years*steps_per_year)
-        disc_rate = pd.DataFrame(data=np.repeat(disc_rate, total_time_steps).reshape(total_time_steps,1))
-        return get_bond_prices(n_years,tenor,steps_per_year, disc_rate, cr, fv)
+        total_time_steps = int(n_years * steps_per_year)
+        disc_rate = pd.DataFrame(data=np.repeat(disc_rate, total_time_steps).reshape(total_time_steps, 1))
+        return get_bond_prices(n_years, tenor, steps_per_year, disc_rate, cr, fv)
 
 
 def get_funding_ratio(pv_liabilities, pv_assets):
@@ -816,7 +820,8 @@ def get_optimal_wts(md_liab, ldb, sdb, av, disc_rate, dt):
         alloc_short_dur_bond = av * (1 - wt_l)
         n_long_dur_bond_match = alloc_long_dur_bond / ldb[0]
         n_short_dur_bond_match = alloc_short_dur_bond / sdb[0]
-        dur_matched_bond_cf = pd.DataFrame(data=pd.concat([ldb[2] * n_long_dur_bond_match, sdb[2] * n_short_dur_bond_match]), columns=['cf'])
+        dur_matched_bond_cf = pd.DataFrame(
+            data=pd.concat([ldb[2] * n_long_dur_bond_match, sdb[2] * n_short_dur_bond_match]), columns=['cf'])
         dur_matched_bond_cf = dur_matched_bond_cf.groupby(dur_matched_bond_cf.index)['cf'].sum()
         dur_matched_bond_cf.index += 1
         disc_rate = disc_rate * dt
@@ -852,10 +857,13 @@ def get_optimal_wts(md_liab, ldb, sdb, av, disc_rate, dt):
 
 
 # # NEED TO ADAPT FOR BONDS WITH VARYING COUPON PERIODS
-def get_duration_matched_pf(liabilities: pd.Series, n_years: list, steps_per_year: list, disc_rate, cr: list, fv: list, av, fr_change_sim=False):
+def get_duration_matched_pf(liabilities: pd.Series, n_years: list, steps_per_year: list, disc_rate, cr: list, fv: list,
+                            av, fr_change_sim=False):
     pv_liabilities, mac_dur_liabilities = get_present_value(liabilities, disc_rate)
-    pv_bond_1, mac_dur_bond_1, bond_cf_1 = get_bond_prices(n_years[0], n_years[0], steps_per_year[0], disc_rate, cr[0], fv[0])
-    pv_bond_2, mac_dur_bond_2, bond_cf_2 = get_bond_prices(n_years[1], n_years[1], steps_per_year[1], disc_rate, cr[1], fv[1])
+    pv_bond_1, mac_dur_bond_1, bond_cf_1 = get_bond_prices(n_years[0], n_years[0], steps_per_year[0], disc_rate, cr[0],
+                                                           fv[0])
+    pv_bond_2, mac_dur_bond_2, bond_cf_2 = get_bond_prices(n_years[1], n_years[1], steps_per_year[1], disc_rate, cr[1],
+                                                           fv[1])
     # bond_cf_1.index += 1
     # bond_cf_2.index += 1
     mac_dur_bond_1 = mac_dur_bond_1.loc[0] / steps_per_year[0]
@@ -870,10 +878,11 @@ def get_duration_matched_pf(liabilities: pd.Series, n_years: list, steps_per_yea
     else:
         long_dur_bond = [pv_bond_2, mac_dur_bond_2, bond_cf_2, steps_per_year[1]]
         short_dur_bond = [pv_bond_1, mac_dur_bond_1, bond_cf_1, steps_per_year[0]]
-    tts_for_pf = steps_per_year[0] if len(bond_cf_1.index) > len(bond_cf_2.index) else steps_per_year[1] # To adj disc_rate periodicity for dur_match pf
+    tts_for_pf = steps_per_year[0] if len(bond_cf_1.index) > len(bond_cf_2.index) else steps_per_year[
+        1]  # To adj disc_rate periodicity for dur_match pf
     dt = 1 / tts_for_pf
 
-    #computes duration match wtss
+    # computes duration match wtss
 
     wt_array = get_optimal_wts(mac_dur_liabilities, long_dur_bond, short_dur_bond, av, disc_rate, dt)
     wt_long_dur_bond = wt_array[0]
@@ -882,17 +891,19 @@ def get_duration_matched_pf(liabilities: pd.Series, n_years: list, steps_per_yea
     # wt_long_dur_bond = 1-wt_short_dur_bond
     # wt_long_dur_bond = 1.0
     # wt_short_dur_bond = 1-wt_long_dur_bond
-    alloc_long_dur_bond = av*wt_long_dur_bond
-    alloc_short_dur_bond = av*wt_short_dur_bond
+    alloc_long_dur_bond = av * wt_long_dur_bond
+    alloc_short_dur_bond = av * wt_short_dur_bond
     n_long_dur_bond_match = alloc_long_dur_bond / long_dur_bond[0]
     n_short_dur_bond_match = alloc_short_dur_bond / short_dur_bond[0]
-    n_long_bond_full = av/long_dur_bond[0]
-    n_short_bond_full = av/short_dur_bond[0]
-    dur_matched_bond_cf = pd.DataFrame(data=pd.concat([long_dur_bond[2]*n_long_dur_bond_match, short_dur_bond[2]*n_short_dur_bond_match]), columns=['cf'])
+    n_long_bond_full = av / long_dur_bond[0]
+    n_short_bond_full = av / short_dur_bond[0]
+    dur_matched_bond_cf = pd.DataFrame(
+        data=pd.concat([long_dur_bond[2] * n_long_dur_bond_match, short_dur_bond[2] * n_short_dur_bond_match]),
+        columns=['cf'])
     dur_matched_bond_cf = dur_matched_bond_cf.groupby(dur_matched_bond_cf.index)['cf'].sum()
     dur_matched_bond_cf.index += 1
-    long_bond_cf_full = long_dur_bond[2]*n_long_bond_full
-    short_bond_cf_full = short_dur_bond[2]*n_short_bond_full
+    long_bond_cf_full = long_dur_bond[2] * n_long_bond_full
+    short_bond_cf_full = short_dur_bond[2] * n_short_bond_full
     disc_rate = disc_rate * dt
     pv_pf, mac_dur_pf = get_present_value(dur_matched_bond_cf, disc_rate)
     pv_pf = pv_pf[0]
@@ -936,6 +947,7 @@ def conv_to_short_rate(r):
     """
     return np.log1p(r)
 
+
 def conv_to_annualised_rate(sr):
     """
     exp(t*sr) - 1 = r (assumes t = 1)
@@ -959,7 +971,7 @@ def get_rates_gbm(rf, n_years, steps_per_yr, n_scenarios, volatility, a, b):
 
     def price(ttm, rf):
         _A = ((2 * h * math.exp((h + a) * ttm / 2)) / (2 * h + (h + a) * (math.exp(h * ttm) - 1))) ** (
-                    2 * a * b / volatility ** 2)
+                2 * a * b / volatility ** 2)
         _B = (2 * (math.exp(h * ttm) - 1)) / (2 * h + (h + a) * (math.exp(h * ttm) - 1))
         _P = _A * np.exp(-_B * rf)
         return _P
@@ -988,14 +1000,15 @@ def get_btr(rates_gbm_df, n_years, steps_per_yr, tenor, cr, fv, n_scenarios):
 
 
 def reshape_disc_rate(n_years, steps_per_year, n_scenarios, disc_rate):
-    rates_df = pd.DataFrame(data=disc_rate, index=range(0, (n_years*steps_per_year+1)), columns=range(0, n_scenarios))
+    rates_df = pd.DataFrame(data=disc_rate, index=range(0, (n_years * steps_per_year + 1)),
+                            columns=range(0, n_scenarios))
     return rates_df
 
 
 def get_bond_gbm(rates_gbm_df: pd.DataFrame, n_years, steps_per_yr, tenor=0, cr=0.05, fv=100):
     bond_cf = 0
-    dt = 1/steps_per_yr
-    total_time_steps = int(n_years*steps_per_yr)
+    dt = 1 / steps_per_yr
+    total_time_steps = int(n_years * steps_per_yr)
     n_scenarios = len(rates_gbm_df.columns)
     cb = np.repeat(0.0, (total_time_steps) * n_scenarios).reshape(total_time_steps, n_scenarios)
     mac_dur = np.empty_like(cb)
@@ -1004,7 +1017,8 @@ def get_bond_gbm(rates_gbm_df: pd.DataFrame, n_years, steps_per_yr, tenor=0, cr=
         ttm = total_time_steps - step
         disc_rate = rates_gbm_df.loc[step]
         disc_rate = pd.DataFrame(np.asarray(pd.concat([disc_rate] * ttm, axis=0)).reshape(ttm, n_scenarios))
-        cb[step], mac_dur[step], temp = get_bond_prices(n_years - step * dt, tenor-step*dt, steps_per_yr, disc_rate, cr, fv)
+        cb[step], mac_dur[step], temp = get_bond_prices(n_years - step * dt, tenor - step * dt, steps_per_yr, disc_rate,
+                                                        cr, fv)
         if step == 0:
             bond_cf = temp
     cb_df = pd.DataFrame(cb)
@@ -1042,21 +1056,23 @@ def plot_cir():
             return value
 
     app.layout = html.Div([html.Div([html.Div([html.Label(children='Select Initial asset value: '),
-                                     dcc.Slider(id='sl_av', min=0.10, max=1.5, step=0.05, value=0.75),
-                                     html.Label(id='out_av')], style={'display': 'inline-block'}),
-                           html.Div([html.Label(children='Select Initial rf annualized: '),
-                                     dcc.Slider(id='sl_rf', min=0.01, max=0.10, step=0.005, value=0.03),
-                                     html.Label(id='out_rf')], style={'display': 'inline-block'}),
-                           html.Div([html.Label(children='Select expected LT RF: '),
-                                    dcc.Slider(id='sl_ltrf', min=0.01, max=0.10, step=0.005, value=0.03),
-                                    html.Label(id='out_ltrf')], style={'display': 'inline-block'}),
-                           html.Div([html.Label(children='Select speed of MR: '),
-                                    dcc.Slider(id='sl_speed', min=0.2, max=1, step=0.05, value=0.5),
-                                    html.Label(id='out_speed')], style={'display': 'inline-block'}),
-                           html.Div([html.Label(children='Select volatility: '),
-                                     dcc.Slider(id='sl_vola', min=0, max=1, step=0.05, value=0.15),
-                                     html.Label(id='out_vola')], style={'display': 'inline-block'}),
-                           html.Button(id='sub_cir', children='SUBMIT', n_clicks=0, style={'display': 'inline-block'})], style= {'display': 'flex', 'justify-content': 'space-evenly'}),
+                                               dcc.Slider(id='sl_av', min=0.10, max=1.5, step=0.05, value=0.75),
+                                               html.Label(id='out_av')], style={'display': 'inline-block'}),
+                                     html.Div([html.Label(children='Select Initial rf annualized: '),
+                                               dcc.Slider(id='sl_rf', min=0.01, max=0.10, step=0.005, value=0.03),
+                                               html.Label(id='out_rf')], style={'display': 'inline-block'}),
+                                     html.Div([html.Label(children='Select expected LT RF: '),
+                                               dcc.Slider(id='sl_ltrf', min=0.01, max=0.10, step=0.005, value=0.03),
+                                               html.Label(id='out_ltrf')], style={'display': 'inline-block'}),
+                                     html.Div([html.Label(children='Select speed of MR: '),
+                                               dcc.Slider(id='sl_speed', min=0.2, max=1, step=0.05, value=0.5),
+                                               html.Label(id='out_speed')], style={'display': 'inline-block'}),
+                                     html.Div([html.Label(children='Select volatility: '),
+                                               dcc.Slider(id='sl_vola', min=0, max=1, step=0.05, value=0.15),
+                                               html.Label(id='out_vola')], style={'display': 'inline-block'}),
+                                     html.Button(id='sub_cir', children='SUBMIT', n_clicks=0,
+                                                 style={'display': 'inline-block'})],
+                                    style={'display': 'flex', 'justify-content': 'space-evenly'}),
                            html.Div([html.Div([html.Label(children='Select N-Periods: '),
                                                dcc.Slider(id='sl_periods', min=1, max=20, step=1, value=10),
                                                html.Label(id='out_periods')], style={'display': 'inline-block'}),
@@ -1066,7 +1082,8 @@ def plot_cir():
                                      html.Div([html.Label(children='Select N-Scenarios: '),
                                                dcc.Slider(id='sl_scenarios', min=2, max=250, step=1, value=10),
                                                html.Label(id='out_scenarios')], style={'display': 'inline-block'})
-                                     ], style= {'display': 'flex', 'justify-content': 'space-evenly', 'padding-top': '25px'}),
+                                     ], style={'display': 'flex', 'justify-content': 'space-evenly',
+                                               'padding-top': '25px'}),
                            html.Div([dcc.Graph(id='cir')]),
                            html.Div([dcc.Graph(id='hist_tfr')])])
 
@@ -1093,32 +1110,34 @@ def plot_cir():
     def upd_cir(n_clicks, rf, n_years, steps_per_yr, n_scenarios, volatility, a, b, av):
         def get_scatter_points(df: pd.DataFrame):
             return df.aggregate(lambda scenario: go.Scatter(x=scenario.index, y=scenario)).tolist()
+
         tenor = n_years
         rates_gbm_df, zcb_gbm_df, zcb_rets = get_rates_gbm(rf, n_years, steps_per_yr, n_scenarios, volatility, a, b)
         liabilities = zcb_gbm_df  # Assuming same liab as that of ZCB
-        cb_df, mac_dur_df, bond_cf = get_bond_gbm(rates_gbm_df,n_years=n_years, steps_per_yr=steps_per_yr, tenor=tenor)
+        cb_df, mac_dur_df, bond_cf = get_bond_gbm(rates_gbm_df, n_years=n_years, steps_per_yr=steps_per_yr, tenor=tenor)
 
         # Investments in ZCB at T0
-        n_bonds = av/zcb_gbm_df.loc[0,0]
+        n_bonds = av / zcb_gbm_df.loc[0, 0]
         av_zcb_df = n_bonds * zcb_gbm_df
         # fr_zcb = (av_zcb_df/liabilities).round(decimals=6)
         fr_zcb = get_funding_ratio(liabilities, av_zcb_df).round(decimals=6)
         fr_zcb_df = fr_zcb.pct_change().dropna()
 
         # Cash investments cumprod
-        fd_rates = rates_gbm_df.apply(lambda x: x/steps_per_yr)
+        fd_rates = rates_gbm_df.apply(lambda x: x / steps_per_yr)
         av_cash_df = drawdown(fd_rates, retrive_index=True, init_wealth=av, is1p=False)
         # fr_cash = av_cash_df/liabilities
         fr_cash = get_funding_ratio(liabilities, av_cash_df)
         fr_cash_df = fr_cash.pct_change().dropna()
 
-        fig = make_subplots(rows=4, cols=2, shared_xaxes=True,specs=[[{}, {}],
-                                                                     [{}, {}],
-                                                                     [{}, {}],
-                                                                     [{}, {}]], subplot_titles=("CIR model of Interest rates","ZCB Prices based on CIR", "CB Prices based on CIR",
-                                                                                                "CB Mac Dur", "Cash invested in FD with rolling maturity",
-                                                                                                " {:.4f} ZCB investments at T=0".format(n_bonds),"Funding Ratio %ch-Cash",
-                                                                                                "Funding Ratio %ch-ZCB"))
+        fig = make_subplots(rows=4, cols=2, shared_xaxes=True, specs=[[{}, {}],
+                                                                      [{}, {}],
+                                                                      [{}, {}],
+                                                                      [{}, {}]], subplot_titles=(
+            "CIR model of Interest rates", "ZCB Prices based on CIR", "CB Prices based on CIR",
+            "CB Mac Dur", "Cash invested in FD with rolling maturity",
+            " {:.4f} ZCB investments at T=0".format(n_bonds), "Funding Ratio %ch-Cash",
+            "Funding Ratio %ch-ZCB"))
         rates_gbm = get_scatter_points(rates_gbm_df)
         zcb_gbm = get_scatter_points(zcb_gbm_df)
         cb_gbm = get_scatter_points(cb_df)
@@ -1128,7 +1147,7 @@ def plot_cir():
         fr_cash_gbm = get_scatter_points(fr_cash_df)
         fr_zcb_gbm = get_scatter_points(fr_zcb_df)
         tfr_cash_hist = fr_cash.iloc[-1].tolist()
-        tfr_zcb_hist = fr_zcb.iloc[-1].loc[0] # since all are same
+        tfr_zcb_hist = fr_zcb.iloc[-1].loc[0]  # since all are same
 
         for rates_data in rates_gbm:
             fig.add_trace(rates_data, row=1, col=1)
@@ -1148,15 +1167,17 @@ def plot_cir():
             fig.add_trace(fr_zcb, row=4, col=2)
 
         b = conv_to_annualised_rate(b)
-        mrl = [dict(type='line', xref='x1', yref='y1', x0=0, x1=n_years*steps_per_yr, y0=b, y1=b, name='Mean Reverting Level',
+        mrl = [dict(type='line', xref='x1', yref='y1', x0=0, x1=n_years * steps_per_yr, y0=b, y1=b,
+                    name='Mean Reverting Level',
                     line=dict(dash='dashdot', width=5))]
         fig.update_xaxes(matches='x')
         fig.update_layout(showlegend=False,
                           height=1000,
                           hovermode='closest',
                           shapes=mrl)
-        tfr_zcb = [dict(type='line', xref='x1', yref='paper', y0=0, y1=1, x0=tfr_zcb_hist, x1=tfr_zcb_hist, name='tfr-zcb',
-                        line=dict(dash='dashdot', width=5))]
+        tfr_zcb = [
+            dict(type='line', xref='x1', yref='paper', y0=0, y1=1, x0=tfr_zcb_hist, x1=tfr_zcb_hist, name='tfr-zcb',
+                 line=dict(dash='dashdot', width=5))]
         tfr_cash_distplot = ff.create_distplot(hist_data=[tfr_cash_hist], group_labels=["tfr_cash"], show_hist=False)
         tfr_cash_distplot.update_layout(shapes=tfr_zcb, hovermode='closest')
         return fig, tfr_cash_distplot
@@ -1170,18 +1191,18 @@ def bt_mix(r1: pd.DataFrame, r2: pd.DataFrame, allocator, **kwargs):
     wt_r1 = allocator(r1, r2, **kwargs)
     if not wt_r1.shape == r1.shape:
         raise ValueError("Use a compatible allocator")
-    return wt_r1*r1 + (1-wt_r1)*r2
+    return wt_r1 * r1 + (1 - wt_r1) * r2
 
 
 def fixed_mix_allocator(r1: pd.DataFrame, r2: pd.DataFrame, wt_r1):
-        return pd.DataFrame(data=wt_r1, index=r1.index, columns=r1.columns)
+    return pd.DataFrame(data=wt_r1, index=r1.index, columns=r1.columns)
 
 
 def glide_path_allocator(r1: pd.DataFrame, r2: pd.DataFrame, wt_start=0.8, wt_end=0.2):
     n_points = r1.shape[0]
     n_scenarios = r1.shape[1]
     wt_r1 = pd.Series(np.linspace(wt_start, wt_end, n_points))
-    wt_r1 = pd.concat([wt_r1]*n_scenarios, axis=1)
+    wt_r1 = pd.concat([wt_r1] * n_scenarios, axis=1)
     return wt_r1
 
 
@@ -1197,18 +1218,18 @@ def floor_allocator(r1: pd.DataFrame, r2: pd.DataFrame, floor, zcb_prices: pd.Da
     for step in range(0, total_time_steps):
         if max_dd_mode:
             peak_value = np.maximum(peak_value, pf_value)
-            floor_value = floor*peak_value
+            floor_value = floor * peak_value
         else:
-            floor_value = floor*zcb_prices.iloc[step]
+            floor_value = floor * zcb_prices.iloc[step]
         cushion = (pf_value - floor_value) / pf_value
-        wt1 = (cushion*m).clip(0,1)
-        pf_ret = wt1*r1.iloc[step] + (1-wt1)*r2.iloc[step]
-        pf_value = (1+pf_ret)*pf_value
+        wt1 = (cushion * m).clip(0, 1)
+        pf_ret = wt1 * r1.iloc[step] + (1 - wt1) * r2.iloc[step]
+        pf_value = (1 + pf_ret) * pf_value
         wt_r1.iloc[step] = wt1
     return wt_r1
 
 
-def distplot_terminal_paths(floor_factor,**kwargs):
+def distplot_terminal_paths(floor_factor, **kwargs):
     app = dash.Dash()
     terminal_paths = []
     pf_type = []
@@ -1217,9 +1238,10 @@ def distplot_terminal_paths(floor_factor,**kwargs):
         pf_type.append(key)
         terminal_paths.append(value.tolist())
         stats.append(terminal_risk_stats(fv=1, floor_factor=floor_factor, wealth_index=value, aslst=True, strategy=key))
-    stats = pd.DataFrame(data=stats, columns=["strategy", 'Exp_wealth', "Exp_Volatility", "Med_Wealth", "#_violations", "p_violations", "CVaR"])
+    stats = pd.DataFrame(data=stats, columns=["strategy", 'Exp_wealth', "Exp_Volatility", "Med_Wealth", "#_violations",
+                                              "p_violations", "CVaR"])
     floor = [dict(type='line', xref='x1', yref='paper', y0=0, y1=1, x0=floor_factor, x1=floor_factor, name='floor',
-                    line=dict(dash='dashdot', width=5))]
+                  line=dict(dash='dashdot', width=5))]
     fig = ff.create_distplot(hist_data=terminal_paths, group_labels=pf_type, show_hist=False)
     fig.update_layout(shapes=floor)
     app.layout = html.Div([html.Div([dcc.Graph(id='terminal_dist_plot', figure=fig)]),
@@ -1231,7 +1253,8 @@ def distplot_terminal_paths(floor_factor,**kwargs):
     app.run_server()
 
 
-def regress(dependent_var: pd.DataFrame, explanatory_var: pd.DataFrame, start_period=None, end_period=None, intercept=True, excess_mkt=True, rfcol='RF'):
+def regress(dependent_var: pd.DataFrame, explanatory_var: pd.DataFrame, start_period=None, end_period=None,
+            intercept=True, excess_mkt=True, rfcol='RF'):
     """
     Runs a linear regression to decompose the dependent variable into the explanatory variables
         returns an object of type statsmodel's RegressionResults on which you can call
@@ -1261,11 +1284,12 @@ def tracking_error(act_rets, exp_rets):
 
 
 def pf_tracking_error(weights, actual_rets, bm_rets):
-    exp_rets = pd.DataFrame(data=(weights*bm_rets).sum(axis=1))
+    exp_rets = pd.DataFrame(data=(weights * bm_rets).sum(axis=1))
     return tracking_error(actual_rets, exp_rets)
 
 
-def style_analyze(dependent_var: pd.DataFrame, explanatory_var: pd.DataFrame, start_period=None, end_period=None, droprf=False, rfcol='RF'):
+def style_analyze(dependent_var: pd.DataFrame, explanatory_var: pd.DataFrame, start_period=None, end_period=None,
+                  droprf=False, rfcol='RF'):
     if isinstance(dependent_var, pd.Series):
         dependent_var = pd.DataFrame(dependent_var)
     dependent_var = dependent_var.loc[start_period:end_period]
@@ -1273,7 +1297,7 @@ def style_analyze(dependent_var: pd.DataFrame, explanatory_var: pd.DataFrame, st
     if droprf:
         explanatory_var = explanatory_var.drop([rfcol], axis=1)
     n_expl_var = explanatory_var.shape[1]
-    init_guess = np.repeat(1/n_expl_var, n_expl_var)
+    init_guess = np.repeat(1 / n_expl_var, n_expl_var)
     bounds = Bounds(lb=0.0, ub=1.0)
     wts_sum_to_1 = {
         'type': 'eq',
@@ -1290,26 +1314,26 @@ def style_analyze(dependent_var: pd.DataFrame, explanatory_var: pd.DataFrame, st
     return weights
 
 
-#WEIGHTING OPTIMIZERS - BACKTEST WEIGHTING SCHEMES
+# WEIGHTING OPTIMIZERS - BACKTEST WEIGHTING SCHEMES
 
 def weight_ew(r, cap_wts=None, max_cw_mult=None, microcap_threshold=None, **kwargs):
     n_components = len(r.columns)
-    weights = np.repeat(1/n_components, n_components)
+    weights = np.repeat(1 / n_components, n_components)
     weights = pd.Series(weights, index=r.columns)
     if cap_wts is not None:
-        cap_weights = cap_wts.loc[r.index[0]] # Cap wts as at begining of a window
+        cap_weights = cap_wts.loc[r.index[0]]  # Cap wts as at begining of a window
         if microcap_threshold is not None and microcap_threshold > 0:
             drop_microcap_mask = cap_weights < microcap_threshold
             weights[drop_microcap_mask] = 0
-            weights = weights/weights.sum() #Recomputes weights
+            weights = weights / weights.sum()  # Recomputes weights
         if max_cw_mult is not None and max_cw_mult > 0:
-            weights = np.minimum(weights, cap_weights*max_cw_mult)
+            weights = np.minimum(weights, cap_weights * max_cw_mult)
             weights = weights / weights.sum()  # Recomputes weights
     return weights
 
 
 def weight_cw(r, cap_wts, **kwargs):
-    cap_wts = cap_wts.loc[r.index[0]] # Because for a rolling period, i would create PF using 1st available market weights for such window.
+    cap_wts = cap_wts.loc[r.index[0]]  # Because for a rolling period, i would create PF using 1st available market weights for such window.
     return cap_wts
 
 
@@ -1324,7 +1348,8 @@ def cc_cov(r, **kwargs):
     """
     sample_corr = r.corr()
     n_assets = len(r.columns)
-    avg_distinct_rho = (sample_corr.values.sum() - n_assets) / (n_assets * (n_assets - 1)) # Taking avg of off diagonal corr matrix on one side
+    avg_distinct_rho = (sample_corr.values.sum() - n_assets) / (
+            n_assets * (n_assets - 1))  # Taking avg of off diagonal corr matrix on one side
     const_corr = np.full_like(sample_corr, avg_distinct_rho)
     np.fill_diagonal(const_corr, 1.)
     sd = r.std()
@@ -1350,7 +1375,7 @@ def weight_gmv(r, cov_estimator=sample_cov, **kwargs):
 
 def bt_roll(r, window, weighting_scheme, **kwargs):
     total_periods = len(r.index)
-    windows =[(start, start+window) for start in range(total_periods-window)]
+    windows = [(start, start + window) for start in range(total_periods - window)]
     weights = [weighting_scheme(r.iloc[win[0]:win[1]], **kwargs) for win in windows]
     # Convert from list of weights to dataframe with sectors along columns and index begining after first rolling period, so that it aligns with returns df
     weights = pd.DataFrame(weights, columns=r.columns, index=r.iloc[window:].index)
@@ -1365,7 +1390,6 @@ def as_colvec(x):
         return np.expand_dims(x, axis=1)
 
 
-
 def rev_opt_implied_returns(delta, sigma_prior: pd.DataFrame, wts_prior: pd.Series):
     """
     Obtain the implied expected returns by reverse engineering the weights
@@ -1375,12 +1399,13 @@ def rev_opt_implied_returns(delta, sigma_prior: pd.DataFrame, wts_prior: pd.Seri
         w: Portfolio weights (N x 1) as Series
     Returns an N x 1 vector of Returns as Series
     """
-    pi = (delta * sigma_prior @ wts_prior).squeeze() # @ may be used instead of dot, but some issues arise if a df is not passed
+    pi = (
+            delta * sigma_prior @ wts_prior).squeeze()  # @ may be used instead of dot, but some issues arise if a df is not passed
     pi.name = 'Implied Returns'
     return pi
 
 
-def omega_proportional_prior(sigma_prior:pd.DataFrame, tau, p: pd.DataFrame):
+def omega_proportional_prior(sigma_prior: pd.DataFrame, tau, p: pd.DataFrame):
     """
     As we noted previously, \cite{he1999intuition} suggest that if the investor does not have a specific way to explicitly
     quantify the uncertaintly associated with the view in the Ω matrix, one could make the simplifying assumption
@@ -1393,14 +1418,15 @@ def omega_proportional_prior(sigma_prior:pd.DataFrame, tau, p: pd.DataFrame):
     p: a K x N DataFrame linking Q and Assets
     returns a K x K diagonal DataFrame, a Matrix representing Prior Uncertainties - Omega
     """
-    scaled_sigma_prior = (tau*sigma_prior).to_numpy()
+    scaled_sigma_prior = (tau * sigma_prior).to_numpy()
     helit_omega_matrix_kxk = p.to_numpy() @ scaled_sigma_prior @ p.T.to_numpy()
     helit_omega_diag_values = np.diag(helit_omega_matrix_kxk)
     # Make a diag matrix from the diag elements of Omega
     return pd.DataFrame(np.diag(helit_omega_diag_values), columns=p.index, index=p.index)
 
 
-def black_litterman(wts_prior: pd.Series, sigma_prior: pd.DataFrame, p: pd.DataFrame, q: pd.Series, omega=None, delta=2.5, tau=0.02):
+def black_litterman(wts_prior: pd.Series, sigma_prior: pd.DataFrame, p: pd.DataFrame, q: pd.Series, omega=None,
+                    delta=2.5, tau=0.02):
     """
 
     :param wts_prior: N x 1 col vector
@@ -1422,11 +1448,11 @@ def black_litterman(wts_prior: pd.Series, sigma_prior: pd.DataFrame, p: pd.DataF
     pi = rev_opt_implied_returns(delta, sigma_prior, wts_prior).to_numpy()
     # Scaled sigma_prior
     sigma_prior = sigma_prior.to_numpy()
-    scaled_sigma_prior = (tau*sigma_prior)
+    scaled_sigma_prior = (tau * sigma_prior)
     common_factor = scaled_sigma_prior @ p.T @ inv(p @ scaled_sigma_prior @ p.T + omega)
     bl_mu = pi + common_factor @ (q - (p @ pi))
     bl_sigma = sigma_prior + scaled_sigma_prior - common_factor @ p @ scaled_sigma_prior
-    return bl_mu, bl_sigma
+    return bl_mu, bl_sigma, omega
 
 
 def get_inverse_df(df: pd.DataFrame):
@@ -1443,5 +1469,18 @@ def w_msr_closed_form(sigma: pd.DataFrame, mu: pd.Series, scale=True):
     """
     wts_msr = inv(sigma) @ mu
     if scale:
-        wts_msr = wts_msr/wts_msr.sum()
+        wts_msr = wts_msr / wts_msr.sum()
     return wts_msr
+
+
+def get_optimal_wts(sigma_prior: pd.DataFrame, bl_sigma: pd.DataFrame, pi: pd.Series, bl_mu: pd.Series, delta, tau, wts_he=True, scale=True):
+    if wts_he:
+        prior_wts_equil = ((inv(sigma_prior) @ pi) / delta) / (1 + tau)
+        posterior_wts_optimal = (inv(bl_sigma) @ bl_mu) / delta
+    else:
+        prior_wts_equil = ((inv(sigma_prior) @ pi) / delta)
+        posterior_wts_optimal = (inv(bl_sigma) @ bl_mu)
+        if scale:
+            posterior_wts_optimal = posterior_wts_optimal / posterior_wts_optimal.sum()
+    wts_diff = posterior_wts_optimal - prior_wts_equil
+    return prior_wts_equil, posterior_wts_optimal, wts_diff
