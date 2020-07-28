@@ -1373,6 +1373,12 @@ def weight_gmv(r, cov_estimator=sample_cov, **kwargs):
     return wts
 
 
+def weight_erc(r, cov_estimator=sample_cov, **kwargs):
+    cov_df = cov_estimator(r, **kwargs)
+    wts = equal_risk_contrib(cov_df)
+    return wts
+
+
 def bt_roll(r, window, weighting_scheme, **kwargs):
     total_periods = len(r.index)
     windows = [(start, start + window) for start in range(total_periods - window)]
@@ -1399,8 +1405,7 @@ def rev_opt_implied_returns(delta, sigma_prior: pd.DataFrame, wts_prior: pd.Seri
         w: Portfolio weights (N x 1) as Series
     Returns an N x 1 vector of Returns as Series
     """
-    pi = (
-            delta * sigma_prior @ wts_prior).squeeze()  # @ may be used instead of dot, but some issues arise if a df is not passed
+    pi = (delta * sigma_prior @ wts_prior).squeeze()  # @ may be used instead of dot, but some issues arise if a df is not passed
     pi.name = 'Implied Returns'
     return pi
 
@@ -1484,3 +1489,42 @@ def get_optimal_wts(sigma_prior: pd.DataFrame, bl_sigma: pd.DataFrame, pi: pd.Se
             posterior_wts_optimal = posterior_wts_optimal / posterior_wts_optimal.sum()
     wts_diff = posterior_wts_optimal - prior_wts_equil
     return prior_wts_equil, posterior_wts_optimal, wts_diff
+
+
+def get_risk_contrib(weights, cov):
+    marginal_contrib = cov @ weights
+    pf_var = get_pf_vol(weights, cov) ** 2
+    indiv_risk_contrib = (marginal_contrib * weights) / pf_var
+    return indiv_risk_contrib
+
+
+def target_risk_contrib(target_risk, cov):
+    n_assets = cov.shape[0]
+    init_guess = np.repeat(1/n_assets, n_assets)
+    bounds = Bounds(lb=0.0, ub=1.0)
+    wts_sum_to_1 = {
+        'type': 'eq',
+        'fun': lambda wts: np.sum(wts) - 1
+    }
+
+    def min_sq_deviation(weights, cov, target_risk):
+        indiv_risk_contrib = get_risk_contrib(weights, cov)
+        err = indiv_risk_contrib - target_risk
+        return err.T @ err
+
+    results = minimize(fun=min_sq_deviation,
+                       args=(cov, target_risk),
+                       x0=init_guess,
+                       bounds=bounds,
+                       method='SLSQP',
+                       options={'disp':False},
+                       constraints=[wts_sum_to_1])
+    weights = results.x
+    return weights
+
+
+def equal_risk_contrib(cov):
+    n_assets = cov.shape[0]
+    target_risk = np.repeat(1/n_assets, n_assets)
+    weights = target_risk_contrib(target_risk, cov)
+    return weights
