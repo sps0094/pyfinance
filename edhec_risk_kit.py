@@ -1528,3 +1528,13 @@ def equal_risk_contrib(cov):
     target_risk = np.repeat(1/n_assets, n_assets)
     weights = target_risk_contrib(target_risk, cov)
     return weights
+
+
+def get_wealth_index_risk(btr: dict):
+    btr_df = pd.DataFrame(btr)
+    btr_df.dropna(inplace=True)
+    btr_wealth_index = pd.DataFrame({key+'_wealth_index': drawdown(btr[key], retrive_index=True, is1p=False) for key in btr_df.columns})
+    wealth_data_plots=[go.Scatter(x=btr_wealth_index.index.to_timestamp(),
+                     y=btr_wealth_index[str],
+                     name=str) for str in btr_wealth_index.columns]
+    return wealth_data_plots, risk_info(btr_df)
