@@ -15,6 +15,10 @@ import statsmodels.api as sm
 import statsmodels.stats.moment_helpers as mh
 from numpy.linalg import inv
 import math
+from sklearn.linear_model import Lasso
+from sklearn.linear_model import Ridge
+from sklearn.linear_model import ElasticNet
+from sklearn.model_selection import GridSearchCV
 
 
 def get_df_columns(filename):
@@ -1253,8 +1257,27 @@ def distplot_terminal_paths(floor_factor, **kwargs):
     app.run_server()
 
 
+def get_options_cv(elasticnet=False):
+    if elasticnet:
+        params = {
+            'max_lamda': 0.25,
+            'n_lamdas': 20,
+            'max_l1_ratio': 0.99,
+            'n_l1-ratio': 50,
+            'k_folds': 10,
+            'randomseed': 7777
+        }
+    else:
+        params = {
+            'max_lamda': 0.25,
+            'n_lamdas': 100,
+            'k_folds': 10,
+            'randomseed': 7777
+        }
+    return params
+
 def regress(dependent_var: pd.DataFrame, explanatory_var: pd.DataFrame, start_period=None, end_period=None,
-            intercept=True, excess_mkt=True, rfcol='RF'):
+            intercept=True, excess_mkt=True, rfcol='RF', method='ols', lamda=0.1):
     """
     Runs a linear regression to decompose the dependent variable into the explanatory variables
         returns an object of type statsmodel's RegressionResults on which you can call
@@ -1262,6 +1285,7 @@ def regress(dependent_var: pd.DataFrame, explanatory_var: pd.DataFrame, start_pe
            .params for the coefficients
            .tvalues and .pvalues for the significance levels
            .rsquared_adj and .rsquared for quality of fit
+           NOTE: SKLearn calles Lambda Alpha.  Also, it uses a scaled version of LASSO argument, so here I scale when converting lambda to alpha
     """
     if isinstance(dependent_var, pd.Series):
         dependent_var = pd.DataFrame(dependent_var)
@@ -1270,10 +1294,77 @@ def regress(dependent_var: pd.DataFrame, explanatory_var: pd.DataFrame, start_pe
     if excess_mkt:
         dependent_var = dependent_var - explanatory_var.loc[:, [rfcol]].values
         explanatory_var = explanatory_var.drop([rfcol], axis=1)
-    if intercept:
-        explanatory_var['Alpha'] = 1
-    regression_result = sm.OLS(dependent_var, explanatory_var).fit()
-    return regression_result
+    if method == 'ols':
+        if intercept:
+            explanatory_var['Alpha'] = 1
+        regression_result = sm.OLS(dependent_var, explanatory_var).fit()
+        return regression_result
+    elif method == 'lasso':
+        alpha = lamda / (2*dependent_var.shape[0])
+        sk_lasso = Lasso(alpha=alpha, fit_intercept=intercept).fit(X=explanatory_var, y=dependent_var)
+        print_sklearn_results(method=method, intercept=sk_lasso.intercept_, coeff=sk_lasso.coef_, explanatory_df=explanatory_var, dependent_df=dependent_var, alpha=alpha, lamda=lamda)
+        return sk_lasso
+    elif method == 'ridge':
+        alpha = lamda
+        sk_ridge = Ridge(alpha=alpha, fit_intercept=intercept).fit(X=explanatory_var, y=dependent_var)
+        print_sklearn_results(method=method, intercept=sk_ridge.intercept_, coeff=sk_ridge.coef_, explanatory_df=explanatory_var, dependent_df=dependent_var, alpha=alpha, lamda=lamda)
+        return sk_ridge
+    elif method == 'cv_lasso':
+        params = get_options_cv()
+        max_alpha = params['max_lamda'] / (2*dependent_var.shape[0])
+        alphas = np.linspace(1e-6, max_alpha, params['n_lamdas'])
+        parameters = {'alpha': alphas}
+        lasso = Lasso(fit_intercept=True, random_state=params['randomseed'])
+        cv_lasso = GridSearchCV(lasso, parameters, cv=params['k_folds'], refit=True)
+        cv_lasso = cv_lasso.fit(X=explanatory_var, y=dependent_var)
+        lasso_best = cv_lasso.best_estimator_
+        alpha_best = cv_lasso.best_params_['alpha']
+        lamda_best = alpha_best * 2 * dependent_var.shape[0]
+        print('Max_alpha is : {}'.format(max_alpha))
+        print_sklearn_results(method=method, intercept=lasso_best.intercept_, coeff=lasso_best.coef_,
+                              explanatory_df=explanatory_var, dependent_df=dependent_var, alpha=alpha_best, lamda=lamda_best)
+        return cv_lasso
+    elif method == 'cv_elasticnet':
+        params = get_options_cv(elasticnet=True)
+        max_alpha = params['max_lamda'] / (2 * dependent_var.shape[0])
+        alphas = np.linspace(1e-6, max_alpha, params['n_lamdas'])
+        max_l1_ratio = params['max_l1_ratio']
+        l1_ratios = np.linspace(1e-6, max_l1_ratio, params['n_l1-ratio'])
+        parameters = {'alpha': alphas, 'l1_ratio': l1_ratios}
+        elasticnet = ElasticNet(fit_intercept=True, random_state=params['randomseed'])
+        cv_elasticnet = GridSearchCV(elasticnet, parameters, cv=params['k_folds'], refit=True)
+        cv_elasticnet = cv_elasticnet.fit(X=explanatory_var, y=dependent_var)
+        elastic_best = cv_elasticnet.best_estimator_
+        alpha_best = cv_elasticnet.best_params_['alpha']
+        l1_ratio_best = cv_elasticnet.best_params_['l1_ratio']
+        lasso_lamda_best = alpha_best * 2 * dependent_var.shape[0] * l1_ratio_best
+        ridge_lambda_best = alpha_best * dependent_var.shape[0] * (1 - l1_ratio_best)
+        msg = '''
+            Best L1 ratio is : {}
+            Best Lasso_Lambda is : {}            
+            Best Ridge_Lambda is : {}
+        '''.format(l1_ratio_best, lasso_lamda_best, ridge_lambda_best)
+        print(msg)
+        print_sklearn_results(method=method, intercept=elastic_best.intercept_, coeff=elastic_best.coef_,
+                              explanatory_df=explanatory_var, dependent_df=dependent_var, alpha=alpha_best,
+                              lamda=lasso_lamda_best)
+        return cv_elasticnet
+    return None
+
+
+def print_sklearn_results(method, intercept, coeff, explanatory_df, dependent_df, alpha, lamda):
+    period = str(explanatory_df.index[0])  + ' - ' + str(explanatory_df.index[-1])
+    desc = '''
+        Regression method is {}
+        Time period is {}
+        Alpha is {}
+        Lambda is {}
+    '''.format(method, period, alpha, lamda)
+    print(desc)
+    factor_names = ['intercept'] + list(explanatory_df.columns)
+    loadings = np.insert(coeff, 0, intercept)
+    loadings = pd.DataFrame(loadings, index=factor_names, columns=[method]).transpose()
+    print(loadings)
 
 
 def tracking_error(act_rets, exp_rets):
