@@ -13,12 +13,15 @@ from plotly.subplots import make_subplots
 from dash.dependencies import Input, Output, State
 import statsmodels.api as sm
 import statsmodels.stats.moment_helpers as mh
+from statsmodels.graphics.gofplots import qqplot
+from statsmodels.distributions.empirical_distribution import ECDF
 from numpy.linalg import inv
 import math
 from sklearn.linear_model import Lasso
 from sklearn.linear_model import Ridge
 from sklearn.linear_model import ElasticNet
 from sklearn.model_selection import GridSearchCV
+import cvxpy as cp
 
 
 def get_df_columns(filename):
@@ -196,8 +199,8 @@ def ren_df(df, rev_name, exis_name='index'):
     return df.reset_index().rename(columns={exis_name: rev_name})
 
 
-def get_cov(df):
-    return df.cov()
+def get_cov(df, periodicity=12):
+    return df.cov()*periodicity
 
 
 def get_pf_ret(wt_array, ret_array):
@@ -1629,3 +1632,117 @@ def get_wealth_index_risk(btr: dict):
                      y=btr_wealth_index[str],
                      name=str) for str in btr_wealth_index.columns]
     return wealth_data_plots, risk_info(btr_df)
+
+
+def split_regime_returns(wealth_data, reqd_assets, regime_select):
+    wealth_data[reqd_assets] = wealth_data[reqd_assets].pct_change()
+    wealth_data.dropna(how='any', inplace=True, axis=0)
+    asset_returns = wealth_data[reqd_assets]
+    growth_regime_mask = wealth_data[regime_select] == 1
+    crash_regime_mask = wealth_data[regime_select] == -1
+    asset_returns_growth_regime, asset_returns_crash_regime = wealth_data.loc[growth_regime_mask, reqd_assets], wealth_data.loc[crash_regime_mask, reqd_assets]
+    return asset_returns, asset_returns_growth_regime, asset_returns_crash_regime
+
+
+def QQ_plot(rets_data, reqd_assets:list):
+    qq_scatter_data = [go.Scatter(x=qqplot(rets_data[asset], line='s').gca().lines[0].get_xdata(),
+                                  y=qqplot(rets_data[asset], line='s').gca().lines[0].get_ydata(),
+                                  mode='markers',
+                                  name=asset) for asset in reqd_assets]
+    qq_scatter_opt_data = [go.Scatter(x=qqplot(rets_data[asset], line='s').gca().lines[1].get_xdata(),
+                                      y=qqplot(rets_data[asset], line='s').gca().lines[1].get_ydata(),
+                                      mode='lines',
+                                      name=asset) for asset in reqd_assets]
+    qq_scatter_data.extend(qq_scatter_opt_data)
+    qq_layout = go.Layout(title='QQ-Plots',
+                          xaxis=dict(title='Idealised Quantiles'),
+                          yaxis=dict(title='Actual Quantiles'),
+                          showlegend=True)
+    fig = go.Figure(data=qq_scatter_data, layout=qq_layout)
+    # fig.add_trace(data=qq_scatter_opt_data)
+    return fig
+
+
+def ecdf_plot(rets_data, reqd_assets:list):
+    ecdf_data = [go.Scatter(x=ECDF(rets_data[asset]).x,
+                            y=ECDF(rets_data[asset]).y,
+                            mode='lines',
+                            name=asset) for asset in reqd_assets]
+    ecdf_layout = go.Layout(title='ECDF Plot')
+    fig = go.Figure(ecdf_data, ecdf_layout)
+    return fig
+
+
+def trend_filter(rets_data, lambda_value):
+    """
+    Strips and returns the drift term for identification of regime changes using ML algo - refer coursera notebook
+    :param rets_data:
+    :param lambda_value:
+    :return:
+    """
+    #USING CVXPY convex optimiser
+    n_periods = rets_data.shape[0]
+    rets = rets_data.to_numpy()
+
+    D_full = np.diag([1]*n_periods) - np.diag([1]*(n_periods-1), 1)
+    D = D_full[0:n_periods-1,]
+    beta = cp.Variable(n_periods)
+    lambd = cp.Parameter(nonneg=True)
+    lambd.value = lambda_value
+
+    def lasso_min(betas, rets, lambd):
+        return cp.norm(rets-betas, 2)**2 + lambd*cp.norm(cp.matmul(D, betas), 1)
+
+    problem = cp.Problem(cp.Minimize(lasso_min(beta, rets, lambd)))
+    problem.solve()
+
+    # NOT WORKING
+    # n_periods = rets_data.shape[0]
+    # D_full = np.diag([1] * n_periods) - np.diag([1] * (n_periods - 1), 1)
+    # D = D_full[0:n_periods - 1, ]
+    # def lasso_min(betas, rets, D, lambda_value):
+    #     return np.linalg.norm(rets-betas)**2 + lambda_value*np.linalg.norm(D@betas,1)
+    #
+    # init_guess = np.repeat(1/n_periods, n_periods)
+    # bounds = Bounds(lb=0.0, ub=1.0)
+    # results = minimize(fun=lasso_min,
+    #                    args=(rets_data, D, lambda_value),
+    #                    x0=init_guess,
+    #                    bounds=bounds,
+    #                    method='SLSQP',
+    #                    options={'disp':False})
+    # betas = pd.Series(results.x, index=rets_data.index)
+    # return betas
+    betas = pd.DataFrame(beta.value, index=rets_data.index.to_timestamp(), columns=['drift'])
+    return betas
+
+
+def get_regime_switches(betas:pd.DataFrame, threshold_value=1e-5):
+    betas['crash_regime'] = False
+    betas['crash_regime'] = betas['drift'] < threshold_value
+    switches = betas[betas['crash_regime'].diff().fillna(False)]
+    betas_switch = betas.loc[switches.index]
+    crash_periods_start = list(betas_switch[betas_switch['crash_regime']].index)
+    crash_periods_end = list(betas_switch[betas_switch['crash_regime'] == False].index)
+    coordinate_list = list(zip(crash_periods_start, crash_periods_end))
+    return coordinate_list
+
+
+def trend_filter_plot(rets_data, lambda_value, threshold_value):
+    betas = trend_filter(rets_data, lambda_value)
+    regime_plot_data = [go.Scatter(x=betas.index,
+                                   y=rets_data,
+                                   mode='lines',
+                                   name='Actual TS data'),
+                        go.Scatter(x=betas.index,
+                                   y=betas['drift'],
+                                   mode='lines',
+                                   name='Drift term')]
+    fig = go.Figure(regime_plot_data, go.Layout(title='Trend Filter Plot'))
+    regimes = get_regime_switches(betas, threshold_value)
+    for coordinates in regimes:
+        rect_shape = dict(type='rect', y0=0, y1=1, x0=coordinates[0], x1=coordinates[1],
+                          yref='paper', xref='x1', fillcolor='rgba(255,24,86,0.5)')
+        fig.add_shape(rect_shape)
+    return fig
+
