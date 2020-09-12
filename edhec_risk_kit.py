@@ -14,6 +14,7 @@ from dash.dependencies import Input, Output, State
 import statsmodels.api as sm
 import statsmodels.stats.moment_helpers as mh
 from statsmodels.graphics.gofplots import qqplot
+from statsmodels.tsa.stattools import adfuller
 from statsmodels.distributions.empirical_distribution import ECDF
 from numpy.linalg import inv
 import math
@@ -22,6 +23,9 @@ from sklearn.linear_model import Ridge
 from sklearn.linear_model import ElasticNet
 from sklearn.model_selection import GridSearchCV
 import cvxpy as cp
+from sklearn.preprocessing import StandardScaler
+
+import config
 
 
 def get_df_columns(filename):
@@ -65,12 +69,16 @@ def get_ann_vol(df):
     return ann_vol
 
 
-def get_ann_return(df):
+def get_ann_return(df, periodicity=12, expm1=True):
     if isinstance(df, (np.ndarray, np.generic)):
-        ann_factor = 12 / df.shape[0]
+        ann_factor = periodicity / df.shape[0]
     else:
-        ann_factor = 12 / len(df.index)
-    ann_ret_np = np.expm1(ann_factor * (np.log1p(df).sum()))  # using log method for eff computation
+        ann_factor = periodicity / len(df.index)
+    ann_ret_np = ann_factor * (np.log1p(df).sum()) # using log method for eff computation
+    if expm1:
+        ann_ret_np = np.expm1(ann_ret_np)
+    else:
+        ann_ret_np = np.exp(ann_ret_np)
     return ann_ret_np
 
 
@@ -1426,6 +1434,10 @@ def weight_ew(r, cap_wts=None, max_cw_mult=None, microcap_threshold=None, **kwar
     return weights
 
 
+def weight_custom(r, cust_wts):
+    return cust_wts
+
+
 def weight_cw(r, cap_wts, **kwargs):
     cap_wts = cap_wts.loc[r.index[0]]  # Because for a rolling period, i would create PF using 1st available market weights for such window.
     return cap_wts
@@ -1746,3 +1758,137 @@ def trend_filter_plot(rets_data, lambda_value, threshold_value):
         fig.add_shape(rect_shape)
     return fig
 
+
+def transition_matrix(regime: pd.Series):
+    n_unique = regime.value_counts()
+    n_unique.index = ['normal', 'crash']
+    switches = regime.diff().fillna(0.0)
+    n_switches = switches.value_counts()
+    n_switches.index = ['no_switch', 'cr_gr_switch', 'gr_cr_switch']
+    p_matrix = pd.DataFrame({
+        'normal': [(n_unique['normal'] - n_switches['gr_cr_switch']), n_switches['gr_cr_switch']] / n_unique['normal'],
+        'crash': [n_switches['cr_gr_switch'], (n_unique['crash'] - n_switches['cr_gr_switch'])] / n_unique['crash']
+    }, index=['normal', 'crash']).T
+    return p_matrix
+
+
+def check_ranks(coeff_matrix, b):
+    aug_matrix = np.append(coeff_matrix, b.reshape(1, len(b)).T, axis=1)
+    rank_coeff_matrix = np.linalg.matrix_rank(coeff_matrix)
+    rank_aug_matrix = np.linalg.matrix_rank(aug_matrix)
+    if rank_aug_matrix == rank_coeff_matrix:
+        print('Unique stationary pi exist')
+    else:
+        print('Do Markov Simulation')
+    return None
+
+
+def get_markov_stationary_distr(p_matrix: pd.DataFrame):
+    """
+    Please refer https://towardsdatascience.com/markov-chain-analysis-and-simulation-using-python-4507cee0b06e
+    Also see notes
+    A.pi = b
+    So, (AT.A).pi = (AT.b) # Visualise as reverse transforming b vector to land at pi
+    Needed to implement markov simulation
+    """
+    n_states = p_matrix.shape[0]
+    i = np.repeat(1, n_states)
+    I = np.identity(n_states)
+    P = p_matrix.to_numpy()
+    A = np.append((P.T - I), [i], axis=0)
+    b = np.repeat(0, n_states)
+    b = np.append(b, 1)
+    check_ranks(A, b)
+    pi = pd.Series(np.linalg.solve(A.T @ A, A.T @ b), index=p_matrix.columns)
+    return pi
+
+
+def get_multivariate_sim_scenario_rets(asset_data, n_years, n_scenarios, regime_col='Regime-5'):
+    """
+    :return: 3 dimensional matrix asset returns simulated for time steps for each scenario scenario wise
+    """
+    np.random.seed(7)
+    rets, ret_gr, ret_cr = split_regime_returns(asset_data, config.asset_categories, regime_col)  # mNot annualised
+    regime = asset_data[regime_col]
+    p_matrix = transition_matrix(regime)
+    pi = get_markov_stationary_distr(p_matrix)
+    time_steps = n_years * 12
+    mvn_distr_gr = np.random.multivariate_normal(get_ann_return(ret_gr, periodicity=1, expm1=False),
+                                                 get_cov(ret_gr, periodicity=1), (n_scenarios, time_steps))
+    mvn_distr_cr = np.random.multivariate_normal(get_ann_return(ret_cr, periodicity=1, expm1=False),
+                                                 get_cov(ret_cr, periodicity=1), (n_scenarios, time_steps))
+    mvn_mixed = mvn_distr_gr * pi['normal'] + mvn_distr_cr * pi['crash']  # Long term stationary probability distribution representing fraction of time spent in each state
+    # mvn_mixed = mvn_mixed.reshape(len(rets.columns), time_steps, n_scenarios)
+    return mvn_mixed
+
+
+def fix_mix(orig_wts, mvn_asset_rets, spending_rate, rebal_freq=None):
+    """
+    rebal_freq if none implies that at first time step, wt scheme which was used to form portfolio is allowed to run its course throughout
+    rebal freq if in month (say 3) means at end of each 3rd month, wt scheme is reset to original wt scheme
+    """
+    n_scenarios, time_steps, n_assets = mvn_asset_rets.shape
+    wealth_index = np.zeros((int(time_steps/12), n_scenarios))
+    for scenario in range(n_scenarios):
+        asset_rets = mvn_asset_rets[scenario]
+        cum_pf_rets_component_wise = orig_wts  # Initial weight adopted for first time step
+        if rebal_freq is None:
+            for period in range(time_steps):
+                cum_pf_rets_component_wise = cum_pf_rets_component_wise * asset_rets[period]
+                if period % 12 == 0:
+                    cum_pf_rets_component_wise = cum_pf_rets_component_wise * (1-spending_rate)
+                    wealth_index[int(period/12), scenario] = np.sum(cum_pf_rets_component_wise)
+        else:
+            for period in range(time_steps):
+                cum_pf_rets_component_wise = cum_pf_rets_component_wise * asset_rets[period]
+                if period % rebal_freq == 0:
+                    cum_pf_rets_component_wise = np.sum(
+                        cum_pf_rets_component_wise) * orig_wts  # Rebalnce occurs at the end of the period
+                if period % 12 == 0:
+                    cum_pf_rets_component_wise = cum_pf_rets_component_wise * (1 - spending_rate)
+                    wealth_index[int(period / 12), scenario] = np.sum(cum_pf_rets_component_wise)
+    return wealth_index
+
+
+def build_pf_ret(mvn_asset_rets, orig_wts, allocator=fix_mix, spending_rate=0.03, rebal_freq=None):
+    return allocator(orig_wts, mvn_asset_rets, spending_rate, rebal_freq)
+
+
+def retrieve_stationary_time_series(features_df: pd.DataFrame, threshold=0.1):
+    """
+    # Check stationarity in time series data
+    # We will perform adfuller test to check unit roots 3 times.
+    # First time for non-stationary series we will take first order difference
+    # Second time we will take second order difference
+    # Third time if there are still remaining non-stationary columns we will drop them from feature set
+    """
+    def check_ad_fuller(col):
+        result = adfuller(col)
+        p_value = result[1]
+        return p_value
+
+    non_stationary_cols = []
+
+    for order in range(3):
+        for col in features_df.columns:
+            p_value = check_ad_fuller(features_df[col])
+            if p_value > threshold:
+                if order == 2:
+                    non_stationary_cols.append(col)
+                    features_df.drop(non_stationary_cols, axis=1)
+                else:
+                    features_df[col] = features_df[col].diff() #Taking differences to again check for stationarity
+        features_df.dropna(axis=0, inplace=True)
+    return features_df
+
+
+def standardise_data(stationary_df:pd.DataFrame):
+    """
+    Does standardisation
+    :param feature_df:
+    :return: standardised dataframe
+    """
+    scalar = StandardScaler()
+    scalar.fit(stationary_df)
+    standardised_feature_df = pd.DataFrame(scalar.transform(stationary_df), columns=stationary_df.columns, index=stationary_df.index)
+    return standardised_feature_df
