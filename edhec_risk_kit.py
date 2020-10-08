@@ -1856,6 +1856,7 @@ def build_pf_ret(mvn_asset_rets, orig_wts, allocator=fix_mix, spending_rate=0.03
 
 def retrieve_stationary_time_series(features_df: pd.DataFrame, threshold=0.1):
     """
+    #Refer https://machinelearningmastery.com/time-series-data-stationary-python/
     # Check stationarity in time series data
     # We will perform adfuller test to check unit roots 3 times.
     # First time for non-stationary series we will take first order difference
@@ -1872,7 +1873,7 @@ def retrieve_stationary_time_series(features_df: pd.DataFrame, threshold=0.1):
     for order in range(3):
         for col in features_df.columns:
             p_value = check_ad_fuller(features_df[col])
-            if p_value > threshold:
+            if p_value > threshold: #failing to reject h0 and thus original time series has unit root and is thus non stationary
                 if order == 2:
                     non_stationary_cols.append(col)
                     features_df.drop(non_stationary_cols, axis=1)
